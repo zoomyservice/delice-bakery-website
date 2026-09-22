@@ -177,6 +177,7 @@ body {
   -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
 }
 img, video { max-width: 100%; display: block; }
+img { height: auto; }
 a { color: inherit; text-decoration-color: var(--gold); text-underline-offset: 3px; }
 a:hover { color: var(--gold); }
 button { font: inherit; }
