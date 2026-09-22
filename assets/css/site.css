@@ -285,7 +285,7 @@ p { margin: 0 0 1em; }
 .hero-media video, .hero-media img { width: 100%; height: 100%; object-fit: cover; }
 .hero::after { content: ""; position: absolute; inset: 0; background: radial-gradient(120% 90% at 30% 50%, rgba(18,14,11,.55), rgba(18,14,11,.88)); }
 .hero .wrap { position: relative; z-index: 2; padding-top: 60px; padding-bottom: 60px; }
-.hero-logo { width: min(520px, 86%); margin-bottom: 18px; }
+.hero-logo { width: min(380px, 70%); margin-bottom: 14px; }
 .hero h1 { color: #fbf3e2; font-weight: 500; font-style: italic; font-size: clamp(2.1rem, 5vw, 3.9rem); max-width: 16ch; }
 .hero .lead { color: #e2d5c1; }
 .badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
@@ -589,7 +589,7 @@ button.zoom:focus-visible { outline: 2px solid var(--gold); outline-offset: -3px
 .order-bar .btn:last-child { flex: 0 0 96px; }
 @media (max-width: 560px) {
   .grid.promos { grid-template-columns: 1fr; }
-  .hero-logo { width: min(300px, 78%); }
+  .hero-logo { width: min(200px, 60%); }
   .hero { min-height: 0; }
   .hero .wrap { padding-top: 40px; padding-bottom: 48px; }
   .card h3 { font-size: 1.3rem; }
