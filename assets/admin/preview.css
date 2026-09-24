@@ -1,0 +1,10 @@
+/* Delice Bakery — admin panel: the live preview frame (uses the website's own styles) */
+body.pv { margin: 0; padding: 16px; background: #f4ecdf; min-height: 0; }
+body.pv--wide { padding: 0; }
+.pv__in { max-width: 380px; margin: 0 auto; }
+.pv--wide .pv__in { max-width: none; }
+.pv .reveal { opacity: 1 !important; transform: none !important; }
+.pv .card:hover { transform: none; box-shadow: none; }
+.pv button, .pv a { pointer-events: none; }
+.pv .section { padding: 36px 0; }
+.pv-note { font: 15px/1.5 system-ui, sans-serif; color: #6d5f4f; text-align: center; padding: 40px 16px; margin: 0; }
