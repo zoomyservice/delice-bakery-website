@@ -27,8 +27,8 @@ Menus and prices, holiday cards, photo galleries, hours and closed days, and the
 announcement bar are edited in the admin panel at https://delice-admin.pages.dev
 (owner and staff logins). Its code and setup scripts are in the `admin-panel` folder next
 to this one.
-- Published changes show on the website within about a minute: `assets/js/live.js` asks
-  the panel for the latest version and redraws only what changed. If the panel can't be
+- Published changes show on the website right away: every time a page opens,
+  `assets/js/live.js` asks the panel for the latest version and redraws only what changed. If the panel can't be
   reached, pages simply show what's in their files.
 - Every 15 minutes a GitHub Action (`.github/workflows/bake.yml`, running `tools/bake.mjs`)
   writes the latest published version into the pages, `assets/data/site.json` and

@@ -1029,7 +1029,7 @@
         : '<p>Save the current version.</p>') +
         '<div class="field"><label for="pub-note">Note for the history <span class="muted">(optional)</span></label>' +
         '<input class="input" id="pub-note" maxlength="140" placeholder="For example: new holiday prices"></div>' +
-        `<p class="muted small">${state.backend.kind === 'local' ? 'Your copy of the website shows the changes when you reload it.' : 'The website shows the changes within about a minute.'}</p>`,
+        `<p class="muted small">${state.backend.kind === 'local' ? 'Your copy of the website shows the changes when you reload it.' : 'The website shows the changes right away. Refresh any page that’s already open.'}</p>`,
       foot: '<button type="button" class="btn btn--quiet" data-dlg-close>Cancel</button><button type="submit" class="btn btn--primary" data-ok>Publish</button>',
       focus: '#pub-note',
       onSubmit: async (d) => {
@@ -1046,7 +1046,7 @@
           d.close(true);
           changed({ rerender: true });
           refreshStatus(true);
-          toast(state.backend.kind === 'local' ? 'Published to your test copy.' : 'Published! The website shows it within a minute.', 'ok');
+          toast(state.backend.kind === 'local' ? 'Published to your test copy.' : 'Published! It’s on the website now. Refresh the page to see it.', 'ok');
         } catch (ex) {
           d.close(false);
           handleSaveError(ex);
