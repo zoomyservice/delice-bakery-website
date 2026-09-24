@@ -1,0 +1,36 @@
+# Copies what was published in the admin panel into the website's own files (pages, photos, data),
+# so the pages are complete without the panel and search engines see the current prices.
+# The website also shows new changes right away in the browser (assets/js/live.js); this just makes them permanent.
+name: Bake admin panel changes
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch: {}
+permissions:
+  contents: write
+concurrency:
+  group: bake
+  cancel-in-progress: false
+jobs:
+  bake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Bake the latest published version
+        id: bake
+        run: node tools/bake.mjs --remote
+      - name: Save the changes
+        run: |
+          if git diff --quiet && [ -z "$(git ls-files --others --exclude-standard)" ]; then
+            echo "Nothing new."
+            exit 0
+          fi
+          git config user.name "Delice admin panel"
+          git config user.email "delice-admin@users.noreply.github.com"
+          git add -A
+          git commit -m "Publish admin panel changes (version ${{ steps.bake.outputs.version }})"
+          git push
