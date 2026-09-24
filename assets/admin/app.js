@@ -77,6 +77,14 @@
     return R.fmtDate(iso, long) + (y !== today().slice(0, 4) ? `, ${y}` : '');
   }
   const priceOk = (v) => String(v || '').trim() !== '';
+  /* Price boxes show a "$" in front of plain amounts; text like "1 lb · $19.50" or "Market price" goes without it. */
+  const isBareAmount = (v) => /^\s*(\d+(\.\d*)?|\.\d+)(\s*[–-]\s*\$?(\d+(\.\d*)?|\.\d+))?\s*$/.test(String(v || ''));
+  const moneyClass = (v) => `money${String(v || '').trim() && !isBareAmount(v) ? ' money--plain' : ''}`;
+  function syncMoney(input) {
+    const box = input && input.closest('.money');
+    if (box) box.className = moneyClass(input.value);
+    if (input && input.classList.contains('input--row')) input.classList.toggle('is-wide', input.value.length > 7);
+  }
 
   const ICONS = {
     plus: '<path d="M12 5v14M5 12h14"/>',
@@ -682,25 +690,26 @@
     refreshStatus();
   }
   let statusTimer = 0;
-  function refreshStatus() {
+  function refreshStatus(now) {
     clearTimeout(statusTimer);
-    statusTimer = setTimeout(() => {
-      const el = $('[data-status]');
-      if (!el || !state.published) return;
-      const dirty = isDirty();
-      $$('[data-act="publish"]').forEach((b) => { b.disabled = !dirty; b.classList.toggle('is-ready', dirty); });
-      $$('[data-act="discard"]').forEach((b) => { b.hidden = !dirty; });
-      root.classList.toggle('is-dirty', dirty);
-      const text = (() => {
-        if (dirty) {
-          const n = R.describeChanges(normalized(state.published.doc), normalized(state.draft), today()).length || 1;
-          return `<span class="dot dot--warn" aria-hidden="true"></span>${plural(n, 'change')} not published yet`;
-        }
-        if (state.published.version) return `<span class="dot dot--ok" aria-hidden="true"></span>Published · ${esc(fmtStamp(state.published.savedAt))}`;
-        return '<span class="dot" aria-hidden="true"></span>No changes published yet';
-      })();
-      $$('[data-status]').forEach((s) => { s.innerHTML = text; });
-    }, 160);
+    if (now) drawStatus(); else statusTimer = setTimeout(drawStatus, 160);
+  }
+  function drawStatus() {
+    const el = $('[data-status]');
+    if (!el || !state.published) return;
+    const dirty = isDirty();
+    $$('[data-act="publish"]').forEach((b) => { b.disabled = !dirty; b.classList.toggle('is-ready', dirty); });
+    $$('[data-act="discard"]').forEach((b) => { b.hidden = !dirty; });
+    root.classList.toggle('is-dirty', dirty);
+    const text = (() => {
+      if (dirty) {
+        const n = R.describeChanges(normalized(state.published.doc), normalized(state.draft), today()).length || 1;
+        return `<span class="dot dot--warn" aria-hidden="true"></span>${plural(n, 'change')} not published yet`;
+      }
+      if (state.published.version) return `<span class="dot dot--ok" aria-hidden="true"></span>Published · ${esc(fmtStamp(state.published.savedAt))}`;
+      return '<span class="dot" aria-hidden="true"></span>No changes published yet';
+    })();
+    $$('[data-status]').forEach((s) => { s.innerHTML = text; });
   }
   window.addEventListener('beforeunload', (e) => {
     if (state.draft && isDirty()) { saveDraftNow(); e.preventDefault(); e.returnValue = ''; }
@@ -773,7 +782,7 @@
         '<button type="button" class="btn btn--quiet btn--sm" data-act="toggle-pass" aria-pressed="false" aria-controls="lg-pass">Show</button></div></div>' +
       '<p class="form-error" data-login-error role="alert" hidden></p>' +
       `<button class="btn btn--primary btn--block" type="submit"${setupMsg ? ' disabled' : ''}>Log in</button>` +
-      (test ? '' : '<p class="muted small">Too many wrong tries lock the login for a while. Forgot the passcode? The owner can set a new one with “Set admin passcode”.</p>') +
+      (test ? '' : '<p class="muted small">Too many wrong tries lock the login for a while. Forgot your passcode? The owner can give staff a new one in Logins &amp; security; the owner’s own passcode is reset by whoever manages the website.</p>') +
       (info.message ? `<p class="note">${esc(info.message)}</p>` : '') +
       '</form></main>';
     const form = $('form', app());
@@ -1036,6 +1045,7 @@
           if (r) r.hidden = true;
           d.close(true);
           changed({ rerender: true });
+          refreshStatus(true);
           toast(state.backend.kind === 'local' ? 'Published to your test copy.' : 'Published! The website shows it within a minute.', 'ok');
         } catch (ex) {
           d.close(false);
@@ -1177,9 +1187,10 @@
     const search = fold([it.name, it.desc, it.kicker, it.opts, (it.prices || []).map((p) => p.label).join(' '), sec.name, g ? g.title : ''].join(' '));
     const flags = [av === 'today' || av === 'soldout' ? 'soldout' : '', av === 'hidden' ? 'hidden' : '', hasPhotos(sec) && !ph ? 'nophoto' : ''].join(' ');
     const movable = isOwner() && !fixedItems(sec, g);
+    const pv = isSinglePrice(it) ? priceInputValue(it.prices[0].price) : '';
     const price = isOwner() && isSinglePrice(it)
       ? (it.prices[0].label ? `<span class="row__plabel">${esc(it.prices[0].label)}</span>` : '') +
-        `<label class="sr-only" for="${rid}-price">Price of ${esc(name)}${it.prices[0].label ? ` (${esc(it.prices[0].label)})` : ''}</label><span class="money"><input class="input input--price" id="${rid}-price" data-field="price" autocomplete="off" value="${esc(priceInputValue(it.prices[0].price))}"></span>`
+        `<label class="sr-only" for="${rid}-price">Price of ${esc(name)}${it.prices[0].label ? ` (${esc(it.prices[0].label)})` : ''}</label><span class="${moneyClass(pv)}"><input class="input input--price input--row${pv.length > 7 ? ' is-wide' : ''}" id="${rid}-price" data-field="price" autocomplete="off" value="${esc(pv)}"></span>`
       : isOwner() ? `<button type="button" class="link-btn" data-act="edit-item">${esc(priceSummary(it))}<span class="sr-only">, edit ${esc(name)}</span></button>`
         : `<span class="muted">${esc(priceSummary(it))}</span>`;
     return `<li class="row${av === 'hidden' ? ' is-hidden' : ''}${av === 'today' || av === 'soldout' ? ' is-soldout' : ''}" data-row="${esc(ref)}" data-gi="${gi}" data-ii="${ii}" data-search="${esc(search)}" data-flags="${flags}">` +
@@ -1188,8 +1199,10 @@
         (isOwner() ? `<button type="button" class="row__name" data-act="edit-item" id="${rid}-name">${esc(name)}<span class="sr-only"> (edit)</span></button>` : `<span class="row__name row__name--plain">${esc(name)}</span>`) +
         (badges.length ? `<ul class="badges">${badges.map(([k, t]) => `<li class="badge${k ? ` badge--${k}` : ''}">${esc(t)}</li>`).join('')}</ul>` : '') +
       '</div>' +
-      `<div class="row__price">${price}</div>` +
-      `<div class="row__avail">${availSelect(it, `${rid}-av`, name)}</div>` +
+      '<div class="row__ctl">' +
+        `<div class="row__price">${price}</div>` +
+        `<div class="row__avail">${availSelect(it, `${rid}-av`, name)}</div>` +
+      '</div>' +
       '<div class="row__tools">' + (movable
         ? `<button type="button" class="icon-btn" data-act="item-up" aria-label="Move ${esc(name)} up"${ii === 0 ? ' disabled' : ''}>${icon('up')}</button>` +
           `<button type="button" class="icon-btn" data-act="item-down" aria-label="Move ${esc(name)} down"${ii === len - 1 ? ' disabled' : ''}>${icon('down')}</button>` +
@@ -1276,6 +1289,7 @@
         const f = findRow(t.closest('[data-row]').getAttribute('data-row'));
         if (!f) return;
         f.it.prices[0].price = t.value;
+        syncMoney(t);
         fieldError(t, priceOk(t.value) ? '' : 'Enter a price, like 4.50');
         changed();
       }
@@ -1287,7 +1301,7 @@
       if (!f || !priceOk(t.value)) return;
       const tidy = tidyPrice(t.value);
       if (tidy !== f.it.prices[0].price) { f.it.prices[0].price = tidy; changed(); }
-      if (priceInputValue(tidy) !== t.value) t.value = priceInputValue(tidy);
+      if (priceInputValue(tidy) !== t.value) { t.value = priceInputValue(tidy); syncMoney(t); }
     });
     view.addEventListener('change', (e) => {
       const t = e.target;
@@ -1642,7 +1656,7 @@
             `<label><input type="radio" name="ie-pricing" value="sizes"${!noPrice && multi ? ' checked' : ''}><span>Different sizes</span></label>` +
             `<label><input type="radio" name="ie-pricing" value="none"${noPrice ? ' checked' : ''}><span>No price</span></label></div>`) +
           '<div class="field" data-one-price><label for="ie-price" class="sr-only">Price</label>' +
-            `<span class="money"><input class="input input--price" id="ie-price" autocomplete="off" value="${esc(multi ? '' : sizes[0].price)}" placeholder="0.00"></span>` +
+            `<span class="${moneyClass(multi ? '' : sizes[0].price)}"><input class="input input--price" id="ie-price" autocomplete="off" value="${esc(multi ? '' : sizes[0].price)}" placeholder="0.00"></span>` +
             '<p class="hint">Type an amount like 4.50, a range like 2.40 – 2.99, or text like “Market price”.</p></div>' +
           '<div data-sizes><table class="sizes"><thead><tr><th scope="col">Size</th><th scope="col">Price</th><th scope="col"><span class="sr-only">Move or remove</span></th></tr></thead><tbody data-size-rows></tbody></table>' +
             (cols ? '' : `<button type="button" class="btn btn--quiet btn--sm" data-act="add-size">${icon('plus')}Add size</button>`) + '</div>' +
@@ -1693,7 +1707,7 @@
       if (!sizeRows) return;
       sizeRows.innerHTML = sizes.map((s, i) =>
         `<tr data-i="${i}"><td>${cols ? `<span>${esc(labelFor(i) || 'Price')}</span>` : `<label class="sr-only" for="ie-sz-${i}">Size ${i + 1} name</label><input class="input" id="ie-sz-${i}" data-sz="label" maxlength="${L.label}" value="${esc(s.label)}" placeholder="e.g. 8&quot;">`}</td>` +
-        `<td><label class="sr-only" for="ie-szp-${i}">Size ${i + 1} price</label><span class="money"><input class="input input--price" id="ie-szp-${i}" data-sz="price" autocomplete="off" value="${esc(s.price)}"></span></td>` +
+        `<td><label class="sr-only" for="ie-szp-${i}">Size ${i + 1} price</label><span class="${moneyClass(s.price)}"><input class="input input--price" id="ie-szp-${i}" data-sz="price" autocomplete="off" value="${esc(s.price)}"></span></td>` +
         '<td class="nowrap">' + (cols ? '' :
           `<button type="button" class="icon-btn" data-act="sz-up" aria-label="Move size ${i + 1} up"${i === 0 ? ' disabled' : ''}>${icon('up')}</button>` +
           `<button type="button" class="icon-btn" data-act="sz-down" aria-label="Move size ${i + 1} down"${i === sizes.length - 1 ? ' disabled' : ''}>${icon('down')}</button>` +
@@ -1845,6 +1859,7 @@
       const sz = t.getAttribute('data-sz');
       if (sz) sizes[Number(t.closest('tr').getAttribute('data-i'))][sz] = t.value;
       if (t.hasAttribute('data-alt')) photos[Number(t.closest('[data-pi]').getAttribute('data-pi'))].alt = t.value;
+      if (t.id === 'ie-price' || sz === 'price') syncMoney(t);
       if (t.getAttribute('aria-invalid')) fieldError(t, '');
       drawPreview();
     });
@@ -1852,7 +1867,7 @@
       const t = e.target;
       if (t.id === 'ie-price' || t.getAttribute('data-sz') === 'price') {
         const v = priceInputValue(tidyPrice(t.value));
-        if (v !== t.value) { t.value = v; if (t.getAttribute('data-sz')) sizes[Number(t.closest('tr').getAttribute('data-i'))].price = v; }
+        if (v !== t.value) { t.value = v; if (t.getAttribute('data-sz')) sizes[Number(t.closest('tr').getAttribute('data-i'))].price = v; syncMoney(t); }
       }
     });
     box.addEventListener('change', async (e) => {
