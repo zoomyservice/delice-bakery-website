@@ -37,5 +37,8 @@ to this one.
   back on in the repository's Actions tab.
 - The editable spots in the pages are marked `<!--slot:...-->`; the content comes from
   `assets/data/site.json`, not from hand edits in those spots.
+- Galleries added in the panel live on `gallery.html?g=<id>` (with a tile on the Specialty Cakes
+  page and a link in its menu) or at the end of a page (the `gextra:<page>` spot). A deleted
+  gallery disappears from its page; blocks marked `data-show="gallery/<id>"` hide with it.
 - `admin.html` links to the panel. Opened from this folder on your own computer, it also
-  offers a test mode (admin / 1234) that saves only in that browser.
+  offers a test mode (admin / 1234, staff / 1234) that saves only in that browser.
