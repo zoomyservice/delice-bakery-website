@@ -237,16 +237,39 @@
     if (msg) { msg.className = "form-msg ok"; msg.textContent = "Your email app should open with your message ready to send."; }
   }
 
+  /* ---------- gallery.html: show the gallery named in the address (?g=<id>) ---------- */
+  function pickGallery() {
+    var box = document.querySelector('[data-slot="gpages"]');
+    if (!box) return;
+    var m = /[?&]g=([a-z0-9-]{1,60})/.exec(location.search);
+    var want = m ? m[1] : "", found = null;
+    box.querySelectorAll("[data-gpage]").forEach(function (el) {
+      var on = el.getAttribute("data-gpage") === want;
+      el.hidden = !on;
+      if (on) found = el;
+    });
+    var none = document.querySelector("[data-gnone]");
+    // A gallery published a moment ago isn't in this file yet: wait for live.js before saying it's gone.
+    if (none) none.hidden = !!found || !(doc.hasAttribute("data-live-done") || !CFG.admin);
+    if (found) {
+      document.title = found.getAttribute("data-title") + " | Delice Bakery";
+      var canon = document.querySelector('link[rel="canonical"]');
+      if (canon) canon.setAttribute("href", canon.getAttribute("href").replace(/\/gallery(\?.*)?$/, "/gallery?g=" + want));
+    }
+  }
+
   /* ---------- start, and a hook for live changes (live.js) ---------- */
   function refresh(root) {
     bind(root);
     applyDates(root);
     updateStatus();
+    pickGallery();
   }
   window.DeliceSite = {
     config: function () { return CFG; },
     setHours: function (hours) { if (hours) CFG.hours = hours; updateStatus(); },
     refresh: refresh,
+    pickGallery: pickGallery,
     today: function () { return laParts().date; }
   };
   refresh(document);

@@ -677,3 +677,8 @@ button.zoom:focus-visible { outline: 2px solid var(--gold); outline-offset: -3px
   .topbar .tb-right a { white-space: nowrap; }
   .topbar .wrap { flex-wrap: nowrap; }
 }
+
+/* Galleries added in the admin panel: links in the Specialty Cakes menu, tiles on the Specialty Cakes page */
+.nav .sub .sub-more > ul { list-style: none; margin: 0; padding: 0; }
+.sub-more:empty { display: none; }
+.gtiles { display: contents; } /* their tiles join the Specialty Cakes grid */

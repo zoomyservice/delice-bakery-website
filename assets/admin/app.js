@@ -118,6 +118,7 @@
     undo: '<path d="M9 7L4.5 11.5 9 16"/><path d="M5 11.5h9a5 5 0 0 1 0 10h-2"/>',
     copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/>',
     calendar: '<rect x="4" y="5.5" width="16" height="14.5" rx="2"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/>',
+    move: '<path d="M12 3.5v17M3.5 12h17"/><path d="M9.5 6L12 3.5 14.5 6M9.5 18l2.5 2.5 2.5-2.5M6 9.5L3.5 12 6 14.5M18 9.5l2.5 2.5-2.5 2.5"/>',
   };
   const icon = (name) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ICONS[name] || ''}</svg>`;
 
@@ -134,6 +135,8 @@
   function toast(message, kind, action) {
     const region = $('.toasts');
     if (!region) return;
+    // Only the latest change can be undone (an older Undo would also take back everything done since).
+    if (action) $$('.toast', region).forEach((old) => { if (old.querySelector('button')) old.remove(); });
     const t = doc.createElement('div');
     t.className = `toast${kind ? ` toast--${kind}` : ''}`;
     t.innerHTML = `<span>${esc(message)}</span>`;
@@ -649,6 +652,7 @@
     page: '',
     collapsed: {},
     openGalleries: {},
+    lastGallery: '',      // the gallery last worked on (Preview opens its page)
     lastActivity: Date.now(),
   };
   const DRAFT_KEY = () => `delice-admin-draft-v1:${IS_SERVER ? location.host : 'test'}:${state.user || ''}`;
@@ -980,13 +984,15 @@
   }
 
   /* ------------------------------------------------------------------ preview */
-  async function openPreview(page) {
+  async function openPreview(page, query) {
     const win = window.open('about:blank', '_blank');
     try {
       const d = normalized(state.draft);
       const res = await state.backend.preview(d);
-      const target = page || previewPageFor();
-      const url = state.backend.kind === 'local' ? new URL(`${target}.html?preview=local`, location.href).href : `${siteLink(target)}?preview=${encodeURIComponent(res.token)}`;
+      let target = page, q = query || '';
+      if (!target) [target, q] = previewPageFor();
+      const qs = q ? `${q}&` : '';
+      const url = state.backend.kind === 'local' ? new URL(`${target}.html?${qs}preview=local`, location.href).href : `${siteLink(target)}?${qs}preview=${encodeURIComponent(res.token)}`;
       if (win) { win.opener = null; win.location.href = url; } else window.open(url, '_blank', 'noopener');
       toast('Preview opened in a new tab. Nothing is published until you press Publish.');
     } catch (ex) {
@@ -994,11 +1000,17 @@
       if (ex.code === 'signed_out') handleSaveError(ex); else toast(`The preview couldn’t be made: ${ex.message}`, 'error');
     }
   }
+  /* The page (and address query) the Preview button opens for the tab in use. */
   function previewPageFor() {
-    if (state.tab === 'home') return 'index';
-    if (state.tab === 'hours') return 'contact';
-    if (state.tab === 'menu' && state.page) return state.page;
-    return 'index';
+    if (state.tab === 'home') return ['index', ''];
+    if (state.tab === 'hours') return ['contact', ''];
+    if (state.tab === 'menu' && state.page) return [state.page, ''];
+    if (state.tab === 'galleries' && state.lastGallery) {
+      const g = state.draft.galleries.find((x) => x.id === state.lastGallery && !x.removed);
+      if (g && g.custom && g.page === 'own') return ['gallery', `g=${encodeURIComponent(g.id)}`];
+      if (g) return [g.page, ''];
+    }
+    return ['index', ''];
   }
 
   /* ------------------------------------------------------------------ publishing */
@@ -2119,58 +2131,99 @@
       dlg.box.addEventListener('click', (e) => { const b = e.target.closest('[data-ref]'); if (b) dlg.close(b.getAttribute('data-ref')); });
     });
   }
-
   /* ------------------------------------------------------------------ photo galleries */
   const GALLERY_LIMIT = R.LIMITS.galleryItems;
+  const OWN = 'own';
 
+  function galleryMeta(g) {
+    const photos = g.items.filter((x) => !x.video).length, vids = g.items.length - photos, hid = g.items.filter((x) => x.hidden).length;
+    return [plural(photos, 'photo'), vids ? plural(vids, 'video') : '', hid ? `${hid} hidden` : ''].filter(Boolean).join(' · ');
+  }
+  function galleryPlace(g) {
+    if (g.page === OWN) return 'Its own page · on the Specialty Cakes page and menu';
+    return `At the end of the “${R.pageLabel(g.page)}” page`;
+  }
   function galleryTile(x, i, len) {
     const label = x.video ? (x.label || 'Video') : (x.alt || `Photo ${i + 1}`);
     const src = x.video ? videoPoster(x) : photoUrl(x, 'm');
     return `<li class="gtile${x.hidden ? ' is-hidden' : ''}" data-gi="${i}">` +
       `<div class="gtile__img">${src ? `<img src="${esc(src)}" alt="" loading="lazy">` : icon('photo')}` +
+        `<span class="gtile__num" aria-hidden="true">${i + 1}</span>` +
         (x.video ? `<span class="badge badge--dark gtile__badge">${icon('video')}Video</span>` : '') +
         (x.hidden ? '<span class="badge badge--muted gtile__badge">Hidden</span>' : '') + '</div>' +
       (x.video ? `<p class="gtile__cap muted small">${esc(label)}</p>`
         : `<div class="field"><label class="sr-only" for="gt-${i}">Description of photo ${i + 1}</label><input class="input input--sm" id="gt-${i}" data-alt maxlength="${R.LIMITS.alt}" value="${esc(x.alt || '')}" placeholder="Describe the photo"></div>`) +
       '<div class="gtile__acts">' +
-        `<button type="button" class="icon-btn" data-act="g-left" aria-label="Move ${esc(label)} earlier"${i === 0 ? ' disabled' : ''}>${icon('left')}</button>` +
-        `<button type="button" class="icon-btn" data-act="g-right" aria-label="Move ${esc(label)} later"${i === len - 1 ? ' disabled' : ''}>${icon('right')}</button>` +
+        `<button type="button" class="icon-btn" data-act="g-left" aria-label="Move ${esc(label)} one place earlier" title="One place earlier"${i === 0 ? ' disabled' : ''}>${icon('left')}</button>` +
+        `<button type="button" class="icon-btn" data-act="g-right" aria-label="Move ${esc(label)} one place later" title="One place later"${i === len - 1 ? ' disabled' : ''}>${icon('right')}</button>` +
+        `<button type="button" class="icon-btn" data-act="g-move" aria-label="Move ${esc(label)} to another spot or gallery" title="Move to another spot or gallery">${icon('move')}</button>` +
         `<button type="button" class="icon-btn" data-act="g-hide" aria-pressed="${!!x.hidden}" aria-label="${x.hidden ? 'Show' : 'Hide'} ${esc(label)}" title="${x.hidden ? 'Show on the website' : 'Hide from the website'}">${icon('eye')}</button>` +
-        `<button type="button" class="icon-btn icon-btn--danger" data-act="g-del" aria-label="Remove ${esc(label)}">${icon('trash')}</button>` +
+        `<button type="button" class="icon-btn icon-btn--danger" data-act="g-del" aria-label="Remove ${esc(label)}" title="Remove">${icon('trash')}</button>` +
       '</div></li>';
+  }
+  const LEGEND = '<p class="gal__legend">' +
+    `<span>${icon('left')}${icon('right')} one place earlier or later</span>` +
+    `<span>${icon('move')} move to a spot (like first or last) or to another gallery</span>` +
+    `<span>${icon('eye')} hide or show on the website</span>` +
+    `<span>${icon('trash')} remove</span>` +
+    '<span>New photos go first. Type a short description under each photo.</span></p>';
+
+  function galleryCard(g) {
+    const open = !!state.openGalleries[g.id];
+    const shown = g.items.filter((x) => !x.hidden);
+    const preview = shown.slice(0, 8).map((x) => { const s = x.video ? videoPoster(x) : photoUrl(x, 'm'); return s ? `<img src="${esc(s)}" alt="" loading="lazy">` : ''; }).join('');
+    const more = shown.length > 8 ? `<span class="gal__more">+${shown.length - 8}</span>` : '';
+    return `<section class="cat card gal${open ? ' is-open' : ''}" data-gal="${esc(g.id)}" aria-labelledby="gal-${esc(g.id)}">` +
+      '<header class="cat__head gal__head">' +
+        `<div class="gal__title"><h2 id="gal-${esc(g.id)}" tabindex="-1">${esc(g.name)}</h2><span class="cat__meta">${esc(galleryMeta(g))}</span>` +
+          (g.custom ? `<span class="badge badge--gold">${g.page === OWN ? 'Own page' : 'Added by you'}</span>` : '') + '</div>' +
+        '<div class="cat__tools gal__tools">' +
+          `<button type="button" class="btn btn--sm ${open ? 'btn--primary' : 'btn--quiet'}" data-act="toggle-gal" aria-expanded="${open}" aria-controls="gal-body-${esc(g.id)}">${open ? `${icon('check')}Done` : `${icon('edit')}Edit photos`}</button>` +
+          `<label class="btn btn--quiet btn--sm file-btn">${icon('upload')}<span>Add photos</span><input type="file" class="sr-only" multiple data-gal-input accept="image/jpeg,image/png,image/webp,image/heic,image/heif"></label>` +
+          (g.custom ? `<button type="button" class="btn btn--quiet btn--sm" data-act="gal-settings">${icon('tag')}Name &amp; place</button>` : '') +
+          (g.custom && g.page === OWN ? `<button type="button" class="btn btn--quiet btn--sm" data-act="gal-preview">${icon('eye')}Preview</button>` : '') +
+          `<button type="button" class="btn btn--danger-quiet btn--sm" data-act="gal-del">${icon('trash')}Delete gallery</button>` +
+        '</div>' +
+      '</header>' +
+      (g.custom ? `<p class="gal__place muted small">${esc(galleryPlace(g))}${g.lead ? ` · “${esc(g.lead)}”` : ''}</p>` : '') +
+      (open ? '' : (shown.length
+        ? `<button type="button" class="gal__strip" data-act="toggle-gal" aria-label="Edit the photos of ${esc(g.name)}">${preview}${more}<span class="gal__strip-cta"><span>${icon('edit')}Edit photos</span></span></button>`
+        : `<p class="gal__empty">${g.items.length ? 'All photos are hidden, so this gallery doesn’t show on the website.' : 'No photos yet. Select <strong>Add photos</strong>. A gallery shows on the website once it has photos and you publish.'}</p>`)) +
+      `<div class="cat__body" id="gal-body-${esc(g.id)}"${open ? '' : ' hidden'}>` +
+        '<p class="hint" data-gal-status role="status" aria-live="polite"></p>' +
+        (open ? (g.items.length ? LEGEND + `<ol class="gtiles">${g.items.map((x, i) => galleryTile(x, i, g.items.length)).join('')}</ol>` +
+          `<p class="gal__done"><button type="button" class="btn btn--primary btn--sm" data-act="toggle-gal" aria-expanded="true" aria-controls="gal-body-${esc(g.id)}">${icon('check')}Done</button></p>`
+          : '<p class="gal__empty">No photos yet. Select <strong>Add photos</strong> above.</p>') : '') +
+      '</div></section>';
   }
 
   function viewGalleries(main) {
     const gals = state.draft.galleries;
     const view = doc.createElement('div');
     view.className = 'view';
-    const byPage = [];
+    const live = gals.filter((g) => !g.removed);
+    const groups = [];
+    const own = live.filter((g) => g.custom && g.page === OWN);
+    if (own.length) groups.push({ slug: OWN, label: 'Your gallery pages', note: 'Each one has its own page, a tile on the Specialty Cakes page and a link in the Specialty Cakes menu.', list: own });
     R.PAGES.forEach(([slug, label]) => {
-      const list = gals.filter((g) => g.page === slug);
-      if (list.length) byPage.push({ slug, label, list });
+      const list = live.filter((g) => g.page === slug && !g.custom).concat(live.filter((g) => g.page === slug && g.custom));
+      if (list.length) groups.push({ slug, label, list });
     });
+    const removed = gals.filter((g) => g.removed);
     view.innerHTML =
       '<div class="view__head"><div><h1 tabindex="-1">Photo galleries</h1>' +
-        '<p class="muted">The photo walls on the cake, bread and catering pages. Add new photos (they appear first), hide or remove old ones, and describe each photo for people using screen readers.</p></div></div>' +
-      byPage.map((p) => `<section class="pagegrp" aria-labelledby="gp-${p.slug}"><header class="pagegrp__head"><h2 id="gp-${p.slug}">${esc(p.label)}</h2>` +
-        `<a class="link-btn small" href="${esc(siteLink(p.slug))}" target="_blank" rel="noopener">View page${icon('external')}<span class="sr-only"> (opens in a new tab)</span></a></header>` +
-        p.list.map((g) => {
-          const open = !!state.openGalleries[g.id];
-          const photos = g.items.filter((x) => !x.video).length, vids = g.items.length - photos, hid = g.items.filter((x) => x.hidden).length;
-          const meta = [plural(photos, 'photo'), vids ? plural(vids, 'video') : '', hid ? `${hid} hidden` : ''].filter(Boolean).join(' · ');
-          const preview = g.items.filter((x) => !x.hidden).slice(0, 6).map((x) => { const s = x.video ? videoPoster(x) : photoUrl(x, 'm'); return s ? `<img src="${esc(s)}" alt="" loading="lazy">` : ''; }).join('');
-          return `<section class="cat card gal" data-gal="${esc(g.id)}" aria-labelledby="gal-${esc(g.id)}">` +
-            '<header class="cat__head">' +
-              `<button type="button" class="cat__toggle" data-act="toggle-gal" aria-expanded="${open}" aria-controls="gal-body-${esc(g.id)}"><svg class="i chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg><span class="sr-only">Show or hide ${esc(g.name)}</span></button>` +
-              `<h2 id="gal-${esc(g.id)}" tabindex="-1">${esc(g.name)}</h2><span class="cat__meta">${esc(meta)}</span>` +
-              `<div class="cat__tools"><label class="btn btn--quiet btn--sm file-btn">${icon('upload')}<span>Add photos</span><input type="file" class="sr-only" multiple data-gal-input accept="image/jpeg,image/png,image/webp,image/heic,image/heif"></label></div>` +
-            '</header>' +
-            (open ? '' : `<button type="button" class="gal__strip" data-act="toggle-gal" aria-hidden="true" tabindex="-1">${preview}</button>`) +
-            `<div class="cat__body" id="gal-body-${esc(g.id)}"${open ? '' : ' hidden'}>` +
-              '<p class="hint" data-gal-status role="status" aria-live="polite"></p>' +
-              (open ? `<ol class="gtiles">${g.items.map((x, i) => galleryTile(x, i, g.items.length)).join('')}</ol>` : '') +
-            '</div></section>';
-        }).join('') + '</section>').join('');
+        '<p class="muted">The photo walls on the website. Select <strong>Edit photos</strong> on a gallery to change the order, hide or remove photos, or move them to another gallery. ' +
+        'Add a gallery for a new kind of cake, and delete the ones you don’t want on the website.</p></div>' +
+        `<div class="view__acts"><button type="button" class="btn btn--primary" data-act="gal-add">${icon('plus')}Add a gallery</button></div></div>` +
+      groups.map((p) => `<section class="pagegrp" aria-labelledby="gp-${p.slug}"><header class="pagegrp__head"><h2 id="gp-${p.slug}">${esc(p.label)}</h2>` +
+        (p.slug === OWN ? '' : `<a class="link-btn small" href="${esc(siteLink(p.slug))}" target="_blank" rel="noopener">View page${icon('external')}<span class="sr-only"> (opens in a new tab)</span></a>`) +
+        (p.note ? `<p class="muted small pagegrp__note">${esc(p.note)}</p>` : '') + '</header>' +
+        p.list.map(galleryCard).join('') + '</section>').join('') +
+      (removed.length ? '<section class="card gal-removed" aria-labelledby="gal-removed-title"><h2 id="gal-removed-title">Deleted galleries</h2>' +
+        '<p class="muted">These came with the website and aren’t on it now. Bring one back to show it again (with its photos).</p><ul class="gal-removed__list">' +
+        removed.map((g) => `<li data-gal="${esc(g.id)}"><span><strong>${esc(g.name)}</strong> <span class="muted small">${esc(R.pageLabel(g.page))} · ${esc(galleryMeta(g))}</span></span>` +
+          `<button type="button" class="btn btn--quiet btn--sm" data-act="gal-restore">${icon('undo')}Bring back</button></li>`).join('') +
+        '</ul></section>' : '');
     main.appendChild(view);
 
     const galOf = (el) => { const s = el.closest('[data-gal]'); return s ? gals.find((g) => g.id === s.getAttribute('data-gal')) : null; };
@@ -2191,6 +2244,7 @@
       t.value = '';
       if (!files.length || !g) return;
       state.openGalleries[g.id] = true;
+      state.lastGallery = g.id;
       const secEl = t.closest('[data-gal]');
       const body = $('.cat__body', secEl);
       body.hidden = false;
@@ -2220,18 +2274,31 @@
         if (st) st.textContent = msg;
       } else status.textContent = msg;
     });
-    view.addEventListener('click', (e) => {
+    view.addEventListener('click', async (e) => {
       const b = e.target.closest('[data-act]');
       if (!b) return;
       const act = b.getAttribute('data-act');
+      if (act === 'gal-add') { openGallerySettings(null); return; }
       const g = galOf(b);
       if (!g) return;
+      state.lastGallery = g.id;
       if (act === 'toggle-gal') {
         state.openGalleries[g.id] = !state.openGalleries[g.id];
-        renderTab(`[data-gal="${g.id}"] .cat__toggle`);
+        renderTab(`[data-gal="${g.id}"] [data-act="toggle-gal"]`);
         return;
       }
-      const i = Number(b.closest('[data-gi]').getAttribute('data-gi'));
+      if (act === 'gal-settings') { openGallerySettings(g); return; }
+      if (act === 'gal-preview') { openPreview('gallery', `g=${encodeURIComponent(g.id)}`); return; }
+      if (act === 'gal-del') { deleteGallery(g); return; }
+      if (act === 'gal-restore') {
+        delete g.removed;
+        changed({ rerender: true, focus: `[data-gal="${g.id}"] h2` });
+        toast(`“${g.name}” is back. Publish to show it on the website again.`, 'ok');
+        return;
+      }
+      const tileEl = b.closest('[data-gi]');
+      if (!tileEl) return;
+      const i = Number(tileEl.getAttribute('data-gi'));
       const x = g.items[i];
       if (act === 'g-left' || act === 'g-right') {
         const to = act === 'g-left' ? i - 1 : i + 1;
@@ -2239,6 +2306,8 @@
         [g.items[i], g.items[to]] = [g.items[to], g.items[i]];
         const edge = act === 'g-left' ? to === 0 : to === g.items.length - 1;
         changed({ rerender: true, focus: `[data-gal="${g.id}"] [data-gi="${to}"] [data-act="${edge ? (act === 'g-left' ? 'g-right' : 'g-left') : act}"]` });
+      } else if (act === 'g-move') {
+        openMovePhoto(g, i);
       } else if (act === 'g-hide') {
         if (x.hidden) delete x.hidden; else x.hidden = true;
         changed({ rerender: true, focus: `[data-gal="${g.id}"] [data-gi="${i}"] [data-act="g-hide"]` });
@@ -2249,6 +2318,134 @@
         changed({ rerender: true, focus: next });
         withUndo(`Removed a ${x.video ? 'video' : 'photo'} from “${g.name}”.`, snap);
       }
+    });
+  }
+
+  /* Add a gallery, or change the name and place of one the owner added. */
+  function openGallerySettings(g) {
+    const isNew = !g;
+    const cur = g || { name: '', lead: '', page: OWN };
+    const pages = R.PAGES.map(([slug, label]) => `<option value="${slug}"${cur.page === slug ? ' selected' : ''}>${esc(label)}</option>`).join('');
+    const onPage = cur.page !== OWN;
+    const dlg = openDialog({
+      title: isNew ? 'Add a gallery' : `“${cur.name}”: name and place`, size: 'md',
+      body:
+        `<div class="field"><label for="ng-name">Name</label><input class="input" id="ng-name" maxlength="${R.LIMITS.galleryName}" value="${esc(cur.name)}" placeholder="For example: Baby shower cakes" autocomplete="off"></div>` +
+        '<fieldset class="field plain"><legend>Where it shows on the website</legend>' +
+          `<label class="check"><input type="radio" name="ng-place" value="own"${onPage ? '' : ' checked'}><span>On its own page <span class="muted small">— with a tile on the Specialty Cakes page and a link in the Specialty Cakes menu</span></span></label>` +
+          `<label class="check"><input type="radio" name="ng-place" value="page"${onPage ? ' checked' : ''}><span>At the end of a page</span></label>` +
+          `<div class="field ng-page"${onPage ? '' : ' hidden'}><label class="sr-only" for="ng-page">Page</label><select class="input" id="ng-page">${pages}</select></div>` +
+        '</fieldset>' +
+        `<div class="field"><label for="ng-lead">Short description <span class="muted">(optional)</span></label><input class="input" id="ng-lead" maxlength="${R.LIMITS.galleryLead}" value="${esc(cur.lead || '')}" placeholder="Shown under the name" autocomplete="off"></div>` +
+        (isNew ? '<p class="hint">Next, add photos to it. It shows on the website once it has photos and you publish.</p>' : ''),
+      foot: '<button type="button" class="btn btn--quiet" data-dlg-close>Cancel</button>' +
+        `<button type="submit" class="btn btn--primary">${isNew ? `${icon('plus')}Add gallery` : 'Save'}</button>`,
+      focus: '#ng-name',
+      confirmClose: () => $('#ng-name', dlg.box).value.trim() !== cur.name,
+      onSubmit: (d) => {
+        const nameEl = $('#ng-name', d.box);
+        const name = R.cleanText(nameEl.value, R.LIMITS.galleryName);
+        if (!name) { fieldError(nameEl, 'Give the gallery a name.'); nameEl.focus(); return; }
+        const taken = state.draft.galleries.some((x) => x !== g && !x.removed && x.name.toLowerCase() === name.toLowerCase());
+        if (taken) { fieldError(nameEl, 'Another gallery has this name. Pick a different one.'); nameEl.focus(); return; }
+        if (isNew && state.draft.galleries.filter((x) => x.custom).length >= R.LIMITS.customGalleries) {
+          fieldError(nameEl, `You can add up to ${R.LIMITS.customGalleries} galleries. Delete one you don’t use first.`); return;
+        }
+        const place = $('input[name="ng-place"]:checked', d.box).value;
+        const page = place === 'own' ? OWN : $('#ng-page', d.box).value;
+        const lead = R.cleanText($('#ng-lead', d.box).value, R.LIMITS.galleryLead);
+        let target = g;
+        if (isNew) {
+          const base = `c-${R.slugify(name).slice(0, 40)}`.replace(/-+$/, '');
+          let id = base, n = 2;
+          while (state.draft.galleries.some((x) => x.id === id)) id = `${base}-${n++}`;
+          target = { id, custom: true, page, name, altBase: name, items: [] };
+          state.draft.galleries.push(target);
+          state.openGalleries[id] = false;
+        } else {
+          target.page = page;
+          target.name = name;
+          target.altBase = name;
+        }
+        if (lead) target.lead = lead; else delete target.lead;
+        state.lastGallery = target.id;
+        d.close(true);
+        changed({ rerender: true, focus: `[data-gal="${target.id}"] ${isNew ? '.file-btn input' : 'h2'}` });
+        toast(isNew ? `Added the gallery “${name}”. Add photos to it, then publish.` : 'Saved. Publish to update the website.', 'ok');
+      },
+    });
+    dlg.box.addEventListener('change', (e) => {
+      if (e.target.name === 'ng-place') $('.ng-page', dlg.box).hidden = e.target.value !== 'page';
+    });
+  }
+
+  async function deleteGallery(g) {
+    const n = g.items.length;
+    const pageGallery = !g.custom && R.GALLERY_PAGES.includes(g.id);
+    const what = g.custom
+      ? (g.page === OWN ? 'Its page, its tile on the Specialty Cakes page and its menu link go too.' : '')
+      : pageGallery ? `The “${R.pageLabel(g.page)}” page also leaves the menu and the Specialty Cakes page.` : '';
+    const back = g.custom ? 'You can undo right after.' : 'You can undo right after, or bring it back later from “Deleted galleries” at the bottom of this page.';
+    const ok = await ask({
+      title: `Delete the gallery “${g.name}”?`, danger: true, ok: 'Delete gallery',
+      text: `${n ? `Its ${plural(n, 'photo')} come${n === 1 ? 's' : ''} off the website when you publish.` : 'It comes off the website when you publish.'} ${what} ${back}`.replace(/\s+/g, ' ').trim(),
+    });
+    if (!ok) return;
+    const snap = clone(state.draft);
+    if (g.custom) state.draft.galleries.splice(state.draft.galleries.indexOf(g), 1);
+    else g.removed = true;
+    delete state.openGalleries[g.id];
+    changed({ rerender: true, focus: 'h1' });
+    withUndo(`Deleted the gallery “${g.name}”.`, snap);
+  }
+
+  /* Move a photo to a spot in its gallery (first, last, a number) or into another gallery. */
+  function openMovePhoto(g, i) {
+    const x = g.items[i];
+    const label = x.video ? (x.label || 'Video') : (x.alt || `Photo ${i + 1}`);
+    const src = x.video ? videoPoster(x) : photoUrl(x, 'm');
+    const targets = state.draft.galleries.filter((t) => !t.removed);
+    const posOptions = (t) => {
+      const count = t === g ? t.items.length : t.items.length + 1;
+      let o = `<option value="0">First</option>`;
+      for (let n = 2; n < count; n++) o += `<option value="${n - 1}">Number ${n}</option>`;
+      if (count > 1) o += `<option value="${count - 1}">Last (number ${count})</option>`;
+      return o;
+    };
+    const dlg = openDialog({
+      title: 'Move photo', size: 'sm',
+      body:
+        `<div class="move-photo">${src ? `<img src="${esc(src)}" alt="">` : ''}<p>${esc(label)}<br><span class="muted small">Now number ${i + 1} in “${esc(g.name)}”</span></p></div>` +
+        `<div class="field"><label for="mv-gal">Gallery</label><select class="input" id="mv-gal">${targets.map((t) =>
+          `<option value="${esc(t.id)}"${t === g ? ' selected' : ''}>${esc(t.name)}${t === g ? ' (this gallery)' : ''}</option>`).join('')}</select></div>` +
+        `<div class="field"><label for="mv-pos">Spot</label><select class="input" id="mv-pos">${posOptions(g)}</select></div>`,
+      foot: '<button type="button" class="btn btn--quiet" data-dlg-close>Cancel</button><button type="submit" class="btn btn--primary">Move</button>',
+      focus: '#mv-pos',
+      onSubmit: (d) => {
+        const t = targets.find((y) => y.id === $('#mv-gal', d.box).value) || g;
+        let to = Number($('#mv-pos', d.box).value) || 0;
+        if (t !== g && t.items.length >= GALLERY_LIMIT) { toast(`“${t.name}” is full (${GALLERY_LIMIT} photos).`, 'error'); return; }
+        if (t !== g && x.video && t.items.some((y) => y.video === x.video)) { toast(`“${t.name}” already has this video.`, 'error'); return; }
+        const snap = clone(state.draft);
+        g.items.splice(i, 1);
+        to = Math.max(0, Math.min(to, t.items.length));
+        t.items.splice(to, 0, x);
+        d.close(true);
+        if (t === g) {
+          changed({ rerender: true, focus: `[data-gal="${g.id}"] [data-gi="${to}"] [data-act="g-move"]` });
+          toast(`Moved to number ${to + 1}.`, 'ok');
+        } else {
+          changed({ rerender: true, focus: g.items.length ? `[data-gal="${g.id}"] [data-gi="${Math.min(i, g.items.length - 1)}"] [data-act="g-move"]` : `[data-gal="${g.id}"] h2` });
+          withUndo(`Moved the ${x.video ? 'video' : 'photo'} to “${t.name}” (number ${to + 1}).`, snap);
+        }
+      },
+    });
+    dlg.box.addEventListener('change', (e) => {
+      if (e.target.id !== 'mv-gal') return;
+      const t = targets.find((y) => y.id === e.target.value) || g;
+      const pos = $('#mv-pos', dlg.box);
+      pos.innerHTML = posOptions(t);
+      if (t !== g) pos.value = '0';
     });
   }
 

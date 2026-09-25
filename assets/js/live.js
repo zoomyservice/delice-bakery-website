@@ -121,7 +121,7 @@
 
   /* ---- preview of unpublished changes (opened from the admin panel) ---- */
   function previewToken() {
-    var m = /[?&]preview=([A-Za-z0-9_-]{8,80})/.exec(location.search);
+    var m = /[?&]preview=(local|[A-Za-z0-9_-]{8,80})(?:&|$)/.exec(location.search);
     if (m) { try { sessionStorage.setItem(PREVIEW_KEY, m[1]); } catch (e) { /* ignore */ } return m[1]; }
     try { return sessionStorage.getItem(PREVIEW_KEY) || ""; } catch (e) { return ""; }
   }
@@ -215,6 +215,15 @@
     }).catch(function () { /* keep what the page has */ });
   }
 
-  function go() { try { Promise.resolve(start()).catch(function () {}); } catch (e) { /* keep the page as is */ } }
+  // Tell the page when the panel has answered (or couldn't be reached), e.g. gallery.html waits for it.
+  function done() {
+    doc.setAttribute("data-live-done", "1");
+    if (window.DeliceSite && window.DeliceSite.pickGallery) window.DeliceSite.pickGallery();
+  }
+  function go() {
+    var p;
+    try { p = Promise.resolve(start()); } catch (e) { p = Promise.resolve(); }
+    p.catch(function () {}).then(done);
+  }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", go); else go();
 })();

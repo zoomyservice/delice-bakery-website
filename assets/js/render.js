@@ -18,16 +18,21 @@
     ["index", "Home page"],
     ["rosh-hashanah", "Rosh Hashanah & High Holidays"], ["hanukah", "Hanukkah"], ["purim", "Purim"],
     ["pesach", "Passover (Pesach)"], ["chavouot", "Shavuot"], ["thanksgiving", "Thanksgiving"],
-    ["cake-1", "Cakes & tarts"], ["tart", "Fruit tarts"], ["macaron", "French macarons"],
-    ["croissant", "Croissants & pastries"], ["challah", "Challah"], ["bread-1", "Artisan bread"],
+    ["cake-1", "Cakes & tarts"], ["tart", "Fruit tarts"], ["macaron", "French macarons"], ["cake", "Cakes & macarons overview"],
+    ["bread", "Bread & croissant"], ["croissant", "Croissants & pastries"], ["challah", "Challah"], ["bread-1", "Artisan bread"],
     ["menu", "Café menu"], ["drink", "Coffee & drinks"],
-    ["custom-cake", "Wedding cakes"], ["wedding-galerie", "Wedding gallery"], ["pieces-montee", "Croquembouche"],
+    ["specialty-cake", "Specialty cakes"], ["custom-cake", "Wedding cakes"], ["wedding-cake", "Build your wedding cake"],
+    ["wedding-galerie", "Wedding gallery"], ["pieces-montee", "Croquembouche"],
     ["dipping-cake", "Dipping & printed cakes"], ["birthday-cake", "Letter & number cakes"],
     ["birthday-cake-1", "Birthday & bar/bat mitzvah cakes"], ["custom-cake-1", "All custom cakes"],
     ["tower", "Macaron & meringue towers"], ["custom-cake-tips", "Custom cake tips"],
-    ["food-platers", "Food platters"], ["pastry-plateres", "Pastry platters"]
+    ["catering", "Catering"], ["food-platers", "Food platters"], ["pastry-plateres", "Pastry platters"],
+    ["gluten-free", "Gluten free"], ["kosher", "Kosher"], ["about", "About us"], ["contact", "Contact & hours"]
   ];
   var HOLIDAY_PAGES = ["rosh-hashanah", "hanukah", "purim", "pesach", "chavouot", "thanksgiving"];
+  /* Pages that are just one gallery (the gallery has the page's name as its id). Deleting the gallery also takes
+     the page out of the menu and off the Specialty Cakes page. */
+  var GALLERY_PAGES = ["wedding-galerie", "pieces-montee", "dipping-cake", "birthday-cake", "birthday-cake-1", "tower", "custom-cake-1"];
 
   /* What each kind of list can hold. The admin panel builds its item editor from this. */
   var KINDS = {
@@ -44,7 +49,8 @@
   var LIMITS = {
     name: 90, desc: 600, kicker: 40, ribbon: 30, note: 160, extra: 160, opts: 200, size: 60, label: 40,
     price: 40, tag: 24, pill: 120, alt: 160, prices: 12, photos: 12, tags: 5, pills: 20,
-    items: 150, groups: 20, sections: 60, galleries: 40, galleryItems: 400, special: 120, cards: 8,
+    items: 150, groups: 20, sections: 60, galleries: 60, customGalleries: 30, galleryItems: 400, special: 120, cards: 8,
+    galleryName: 60, galleryLead: 200,
     announcement: 220, linkText: 40, url: 300
   };
   var TAG_PRESETS = ["Dairy", "Pareve", "New", "Best seller", "Gluten free"];
@@ -193,6 +199,28 @@
     for (var i = 0; i < PAGES.length; i++) if (PAGES[i][0] === slug) return PAGES[i][1];
     return slug;
   }
+  function isPage(slug) {
+    for (var i = 0; i < PAGES.length; i++) if (PAGES[i][0] === slug) return true;
+    return false;
+  }
+
+  /* ------------------------------------------------------------------ galleries
+     The website's own galleries sit on fixed pages. The owner can delete one ("removed": its page hides it, and a
+     page that is only that gallery also leaves the Specialty Cakes page and the menu) and add new ones ("custom"):
+     on their own page (gallery.html?g=<id>, with a tile on the Specialty Cakes page and a link in its menu) or at
+     the end of one of the pages above. A gallery with no photos showing isn't shown at all. */
+  var CUSTOM_GALLERY = /^c-[a-z0-9]+(?:-[a-z0-9]+)*$/;
+  function galleryById(doc, id) {
+    var list = arr(doc && doc.galleries);
+    for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === id) return list[i];
+    return null;
+  }
+  function galleryShown(g) { return !!g && !g.removed && arr(g.items).some(visible); }
+  function customGalleries(doc, page) {
+    return arr(doc && doc.galleries).filter(function (g) { return g && g.custom && (page == null || g.page === page); });
+  }
+  function galleryHref(g) { return "gallery.html?g=" + encodeURIComponent(g.id); }
+  function placeLabel(page) { return page === "own" ? "on its own page" : "at the end of the “" + pageLabel(page) + "” page"; }
 
   /* ------------------------------------------------------------------ media */
   function imgUrls(ref, ctx) {
@@ -413,9 +441,49 @@
 
   /* ---------- photo galleries ---------- */
   function galleryBody(g, ctx) {
+    if (g.removed) return "";
     return arr(g.items).filter(visible).map(function (x) {
       if (x.video) return "<figure>" + video(x, null, ctx) + "</figure>";
       return "<figure>" + img(x, { alt: x.alt || g.altBase || "", sizes: "(max-width: 600px) 50vw, 33vw", zoom: g.id }, ctx) + "</figure>";
+    }).join("");
+  }
+  var ARROW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+  /* Tiles on the Specialty Cakes page for the galleries the owner added on their own page. */
+  function galleryTiles(doc, ctx) {
+    return customGalleries(doc, "own").filter(galleryShown).map(function (g) {
+      var shown = arr(g.items).filter(visible);
+      var ph = shown.filter(function (x) { return x.src; })[0];
+      var vid = ph ? null : shown.filter(function (x) { return x.video && x.poster; })[0];
+      var base = (ctx && ctx.assetBase) || "";
+      var media = ph ? img(ph, { alt: ph.alt || g.name, sizes: "(max-width: 860px) 100vw, 33vw" }, ctx)
+        : vid ? '<img src="' + base + "assets/img/" + esc(vid.poster) + '-m.webp" width="' + (Number(vid.w) || 800) + '" height="' + (Number(vid.h) || 800) + '" alt="' + esc(vid.label || g.name) + '" loading="lazy" decoding="async">' : "";
+      return '<a class="tile reveal" href="' + esc(galleryHref(g)) + '">' + media + '<div class="tile-body"><h3>' + esc(g.name) + "</h3>" +
+        (g.lead ? "<p>" + esc(g.lead) + "</p>" : "") + '<span class="go">Explore ' + ARROW + "</span></div></a>";
+    }).join("");
+  }
+  /* Their links in the Specialty Cakes menu. */
+  function galleryNav(doc) {
+    var list = customGalleries(doc, "own").filter(galleryShown);
+    if (!list.length) return "";
+    return "<ul>" + list.map(function (g) { return '<li><a href="' + esc(galleryHref(g)) + '">' + esc(g.name) + "</a></li>"; }).join("") + "</ul>";
+  }
+  /* A gallery added at the end of one of the website's pages. */
+  function gallerySection(g, ctx) {
+    return '<section class="section gextra" id="' + esc(g.id) + '"><div class="wrap"><div class="section-head"><span class="eyebrow">Gallery</span><h2>' + esc(g.name) + "</h2>" +
+      (g.lead ? '<p class="lead">' + esc(g.lead) + "</p>" : "") + '</div><div class="masonry">' + galleryBody(g, ctx) + "</div></div></section>";
+  }
+  /* gallery.html: every gallery that has its own page; the page shows the one named in its address (?g=). */
+  function galleryPages(doc, ctx) {
+    var info = doc.info || {};
+    var digits = str(info.phone).replace(/\D/g, "").slice(-10);
+    var btns = '<div class="btn-row"><a class="btn gold" href="' + esc(mailto(doc, "Custom cake inquiry")) + '">E-mail us about your cake</a>' +
+      (digits.length === 10 ? '<a class="btn ghost" href="tel:+1' + digits + '">Call ' + esc(info.phone) + "</a>" : "") + "</div>";
+    return customGalleries(doc, "own").filter(galleryShown).map(function (g) {
+      return '<div class="gpage" data-gpage="' + esc(g.id) + '" data-title="' + esc(g.name) + '" hidden>' +
+        '<section class="page-hero"><div class="wrap"><nav class="crumbs" aria-label="Breadcrumb"><a href="index.html">Home</a><span>/</span>' +
+        '<a href="specialty-cake.html">Specialty Cakes</a><span>/</span>' + esc(g.name) + "</nav>" +
+        '<span class="eyebrow">Specialty cakes</span><h1>' + esc(g.name) + "</h1>" + (g.lead ? '<p class="lead">' + esc(g.lead) + "</p>" : "") + btns + "</div></section>" +
+        '<section class="section"><div class="wrap"><div class="masonry">' + galleryBody(g, ctx) + "</div></div></section></div>";
     }).join("");
   }
 
@@ -533,6 +601,8 @@
   /* A slot is a spot on a page that is drawn from the data. Its id says what goes there:
        list:<section>          all visible items of a list, in that list's style
        gallery:<gallery>       the photos of a gallery
+       gextra:<page>           galleries the owner added at the end of that page
+       gtiles, gnav, gpages    galleries the owner added on their own page: Specialty Cakes tiles, menu links, gallery.html
        price:<section>/<item>[:rows|:dots]   an item's price(s)
        pills:<section>/<item>[:dots]          an item's flavors / contents
        name:<section>/<item>   an item's name
@@ -557,9 +627,15 @@
       return "";
     }
     if ((m = /^gallery:(.+)$/.exec(id))) {
-      var g = arr(doc.galleries).filter(function (x) { return x.id === m[1]; })[0];
+      var g = galleryById(doc, m[1]);
       return g ? galleryBody(g, ctx) : "";
     }
+    if ((m = /^gextra:([a-z0-9-]+)$/.exec(id))) {
+      return customGalleries(doc, m[1]).filter(galleryShown).map(function (x) { return gallerySection(x, ctx); }).join("");
+    }
+    if (id === "gtiles") return galleryTiles(doc, ctx);
+    if (id === "gnav") return galleryNav(doc);
+    if (id === "gpages") return galleryPages(doc, ctx);
     if ((m = /^(price|pills|name|note):([^:]+)(?::(rows|dots))?$/.exec(id))) {
       var f = findItem(doc, m[2]);
       if (!f || !visible(f.item)) return "";
@@ -609,8 +685,11 @@
     return card(it, sec, ctx, today);
   }
 
-  /* Whether a [data-show] block should be hidden (its item is hidden or gone). */
+  /* Whether a [data-show] block should show: its item is on the website ("section/item"), its gallery is
+     ("gallery/<id>"), or its gallery was deleted ("gallery-gone/<id>", for the note on that gallery's page). */
   function showState(ref, doc) {
+    var m = /^gallery(-gone)?\/(.+)$/.exec(str(ref));
+    if (m) { var on = galleryShown(galleryById(doc, m[2])); return m[1] ? !on : on; }
     var f = findItem(doc, ref);
     return !!f && visible(f.item);
   }
@@ -667,6 +746,17 @@
         if (x.hidden) y.hidden = true;
         return y;
       });
+      if (g.custom) {
+        // a gallery the owner added: deleting it removes it, so it never has "removed"
+        g.custom = true;
+        g.name = clean(g.name, LIMITS.galleryName);
+        g.lead = clean(g.lead, LIMITS.galleryLead);
+        if (!g.lead) delete g.lead;
+        if (g.page !== "own" && !isPage(g.page)) g.page = "own";
+        g.altBase = g.name;
+        delete g.removed;
+      } else if (g.removed) g.removed = true;
+      else delete g.removed;
     });
     return d;
   }
@@ -742,6 +832,7 @@
       });
     });
     arr(d.galleries).forEach(function (g) {
+      if (g.custom && !str(g.name).trim()) add("A gallery you added needs a name.", { tab: "galleries", gallery: g.id });
       arr(g.items).forEach(function (x, i) {
         if (!x.video && !str(x.alt).trim()) add("Photo " + (i + 1) + " in the “" + g.name + "” gallery needs a short description.", { tab: "galleries", gallery: g.id, index: i });
       });
@@ -780,7 +871,11 @@
     arr(b.galleries).forEach(function (g) {
       gb[g.id] = g;
       var o = ga[g.id];
-      if (!o) return;
+      if (!o) { lines.push("Added the gallery “" + g.name + "” " + placeLabel(g.page)); return; }
+      if (!!o.removed !== !!g.removed) { lines.push((g.removed ? "Deleted the gallery “" : "Brought back the gallery “") + g.name + "”"); if (g.removed) return; }
+      if (o.name !== g.name) lines.push("Renamed the gallery “" + o.name + "” to “" + g.name + "”");
+      if (g.custom && o.page !== g.page) lines.push("The gallery “" + g.name + "” now shows " + placeLabel(g.page));
+      if ((o.lead || "") !== (g.lead || "")) lines.push("Gallery “" + g.name + "”: description changed");
       var srcs = function (x, onlyVisible) { return arr(x.items).filter(function (i) { return !onlyVisible || visible(i); }).map(function (i) { return i.src || i.video; }); };
       var so = srcs(o), sn = srcs(g), vo = srcs(o, true), vn = srcs(g, true);
       var added = sn.filter(function (s) { return so.indexOf(s) < 0; }).length, removed = so.filter(function (s) { return sn.indexOf(s) < 0; }).length;
@@ -791,6 +886,7 @@
       if (shown) lines.push("Gallery “" + g.name + "”: " + plural(shown, "photo") + " shown again");
       if (!added && !removed && !hid && !shown && JSON.stringify(o.items) !== JSON.stringify(g.items)) lines.push("Gallery “" + g.name + "”: photos reordered or described");
     });
+    arr(a.galleries).forEach(function (g) { if (!gb[g.id]) lines.push("Deleted the gallery “" + g.name + "”"); });
     var same = function (x, y) { return JSON.stringify(x) === JSON.stringify(y); };
     if (!same(a.home, b.home)) lines.push("Home page holiday section changed");
     if (!same(a.hours && a.hours.week, b.hours && b.hours.week)) lines.push("Store hours changed");
@@ -802,12 +898,14 @@
   }
 
   return {
-    DAY: DAY, PAGES: PAGES, HOLIDAY_PAGES: HOLIDAY_PAGES, KINDS: KINDS, LIMITS: LIMITS, TAG_PRESETS: TAG_PRESETS,
+    DAY: DAY, PAGES: PAGES, HOLIDAY_PAGES: HOLIDAY_PAGES, GALLERY_PAGES: GALLERY_PAGES, KINDS: KINDS, LIMITS: LIMITS, TAG_PRESETS: TAG_PRESETS,
     esc: esc, clone: clone, slugify: slugify, hash: hash, plural: plural, laToday: laToday, addDays: addDays, weekday: weekday,
     fmtDate: fmtDate, fmtTime: fmtTime, validDate: validDate, validTime: validTime,
     normPrice: normPrice, isMoney: isMoney, priceValue: priceValue, fmtMoney: fmtMoney, priceText: priceText,
     isSoldOut: isSoldOut, visible: visible, sections: sections, findSection: findSection, itemsOf: itemsOf, findItem: findItem,
-    eachItem: eachItem, eachPhoto: eachPhoto, uploadIds: uploadIds, pageLabel: pageLabel, imgUrls: imgUrls,
+    eachItem: eachItem, eachPhoto: eachPhoto, uploadIds: uploadIds, pageLabel: pageLabel, isPage: isPage, imgUrls: imgUrls,
+    CUSTOM_GALLERY: CUSTOM_GALLERY, galleryById: galleryById, galleryShown: galleryShown, customGalleries: customGalleries,
+    galleryHref: galleryHref, placeLabel: placeLabel,
     renderSlot: renderSlot, renderItem: renderItem, showState: showState, hoursConfig: hoursConfig, weekHours: weekHours, hourGroups: hourGroups,
     specialText: specialText, upcomingSpecial: upcomingSpecial, safeLink: safeLink,
     normalizeDoc: normalizeDoc, problemsIn: problemsIn, describeChanges: describeChanges, cleanText: clean

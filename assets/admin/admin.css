@@ -179,7 +179,7 @@ select.input--sm { padding-right: 28px; background-position: right 7px center; }
   .topbar__status { display: none; }
   .topbar__actions [data-act="publish"], .topbar__actions [data-act="discard"] { display: none; }
   .topbar__actions [data-act="preview"] { padding: 6px 10px; }
-  .layout { grid-template-columns: 1fr; }
+  .layout { grid-template-columns: minmax(0, 1fr); }
   .sidenav { position: sticky; top: var(--top-h); z-index: 40; height: auto; flex-direction: row; overflow-x: auto; padding: 8px 10px; border-right: 0; border-bottom: 1px solid var(--line); scrollbar-width: none; }
   .sidenav::-webkit-scrollbar { display: none; }
   .sidenav ul { display: flex; gap: 4px; }
@@ -406,3 +406,46 @@ select.input--sm { padding-right: 28px; background-position: right 7px center; }
 .toast.is-leaving { opacity: 0; transform: translateY(6px); transition: opacity .3s, transform .3s; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* ---------- photo galleries: add / delete galleries, clear photo controls ---------- */
+.gal__head { align-items: flex-start; }
+.gal__title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; padding-top: 6px; }
+.gal__place { margin: -4px 16px 12px; }
+.gal__strip { position: relative; align-items: center; min-width: 0; max-width: 100%; }
+.gal__strip img { transition: opacity .15s; }
+.gal__strip:hover img, .gal__strip:focus-visible img { opacity: .7; }
+.gal__strip-cta { position: absolute; right: 0; top: 0; bottom: 14px; display: flex; align-items: center; padding: 0 16px 0 48px;
+  background: linear-gradient(to right, rgba(255, 255, 255, 0), var(--card, #fff) 44px); }
+.gal__strip-cta > span { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 999px; background: var(--gold-soft);
+  border: 1px solid #e6d3ab; color: var(--ink); font-weight: 650; font-size: .86rem; white-space: nowrap; }
+.gal__strip-cta .i { width: 16px; height: 16px; }
+.gal__strip:hover .gal__strip-cta > span, .gal__strip:focus-visible .gal__strip-cta > span { background: #f4e5c5; }
+.gal__more { flex: none; font-weight: 700; color: var(--muted); font-size: .85rem; padding: 0 4px; }
+.gal__empty { margin: 0 16px 14px; color: var(--muted); font-size: .9rem; }
+.gal.is-open { border-color: #e2cfa4; }
+.gal__legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 2px 0 12px; font-size: .85rem; color: var(--muted); }
+.gal__legend span { display: inline-flex; align-items: center; gap: 3px; }
+.gal__legend .i { width: 16px; height: 16px; color: var(--ink); }
+.gal__done { margin: 14px 0 0; }
+.gtile__img { min-height: 0; overflow: hidden; }
+.gtile__img > img { position: absolute; inset: 0; }
+fieldset.plain .check > span { font-weight: 500; }
+fieldset.plain .check .muted { font-weight: 400; }
+.gtile__img .gtile__num { position: absolute; right: 6px; top: 6px; min-width: 24px; height: 24px; padding: 0 7px; border-radius: 999px;
+  background: rgba(21, 17, 14, .78); color: #fff; font-size: .75rem; font-weight: 700; display: grid; place-items: center; }
+.gtile__acts { gap: 0; padding: 4px 2px; }
+.gtile__acts .icon-btn { width: 32px; height: 32px; color: #5b4c3c; }
+.pagegrp__note { flex-basis: 100%; margin: 0; }
+.gal-removed__list { list-style: none; margin: 0; padding: 0; }
+.gal-removed__list li { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; padding: 10px 0; border-top: 1px solid var(--line); }
+.move-photo { display: flex; gap: 12px; align-items: center; margin: 0 0 14px; }
+.move-photo img { width: 72px; height: 72px; object-fit: cover; border-radius: 10px; flex: none; background: #f3ede3; }
+.move-photo p { margin: 0; overflow-wrap: anywhere; }
+fieldset.plain legend { font-weight: 650; font-size: .9rem; margin: 0 0 8px; padding: 0; }
+.ng-page { margin: 0 0 4px 27px; }
+@media (max-width: 760px) {
+  .gal__tools { margin-left: 0; width: 100%; }
+  .gtiles { grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 10px; }
+  .gtile__acts .icon-btn { width: 29px; height: 32px; }
+  .gal__strip-cta { padding-left: 36px; }
+}
