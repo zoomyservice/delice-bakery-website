@@ -782,7 +782,7 @@
         '<button type="button" class="btn btn--quiet btn--sm" data-act="toggle-pass" aria-pressed="false" aria-controls="lg-pass">Show</button></div></div>' +
       '<p class="form-error" data-login-error role="alert" hidden></p>' +
       `<button class="btn btn--primary btn--block" type="submit"${setupMsg ? ' disabled' : ''}>Log in</button>` +
-      (test ? '' : '<p class="muted small">Too many wrong tries lock the login for a while. Forgot your passcode? The owner can give staff a new one in Logins &amp; security; the owner’s own passcode is reset by whoever manages the website.</p>') +
+      (test ? '' : '<p class="muted small">Too many wrong tries lock the login for a while (devices that logged in before aren’t affected by other people’s tries). Forgot your passcode? The owner can give staff a new one in Logins &amp; security; the owner’s own passcode is reset by whoever manages the website.</p>') +
       (info.message ? `<p class="note">${esc(info.message)}</p>` : '') +
       '</form></main>';
     const form = $('form', app());
@@ -816,6 +816,7 @@
         if (ex.code === 'locked' && ex.extra.retryAfter) {
           const mins = Math.ceil(ex.extra.retryAfter / 60);
           msg = ex.extra.retryAfter < 60 ? `Too many wrong tries. Try again in ${ex.extra.retryAfter} seconds.` : `Too many wrong tries. Try again in ${plural(mins, 'minute')}.`;
+          if (ex.extra.known === false) msg += ' A device you’ve logged in with before can still log in.';
         } else if (ex.code === 'invalid' && ex.extra.remaining != null && ex.extra.remaining <= 2) {
           msg += ` ${plural(ex.extra.remaining, 'try', 'tries')} left before the login locks for a while.`;
         }
@@ -2686,7 +2687,7 @@
         '<section class="card" aria-labelledby="act-title"><h2 id="act-title">Recent activity</h2><div data-activity aria-busy="true"><p class="muted">Loading…</p></div></section>' : '') +
       '<section class="card"><h2>How the panel is protected</h2><ul class="bullets">' +
         '<li>Passcodes are checked on the server. Staff passcodes are stored only as a salted hash.</li>' +
-        '<li>After 5 wrong tries, logins from that network are locked for 15 minutes, and longer each time it happens again.</li>' +
+        '<li>After 5 wrong tries, logins from that network are locked for 15 minutes, and longer each time it happens again. Phones and computers that have logged in before have their own limit, so other people’s wrong tries can’t lock you out.</li>' +
         '<li>Your login is kept in a secure cookie that scripts can’t read, and it ends on its own.</li>' +
         '<li>Changes are only accepted from this panel, and every change is checked on the server before it’s saved.</li>' +
         '<li>Uploaded files must be real JPG, PNG or WebP photos.</li>' +
@@ -2785,7 +2786,7 @@
         if (!ok) return;
         try { await state.backend.deleteUser(name); toast(`Removed “${name}”.`); loadUsers(); loadActivity(); } catch (ex) { toast(ex.message, 'error'); }
       } else if (act === 'logout-all') {
-        const ok = await ask({ title: 'Log out on all devices?', text: 'Everyone using the admin panel, including you, will need to log in again.', ok: 'Log out everywhere', danger: true });
+        const ok = await ask({ title: 'Log out on all devices?', text: 'Everyone using the admin panel, including you, will need to log in again, and every phone or computer counts as new until it does. Use this if a device is lost.', ok: 'Log out everywhere', danger: true });
         if (!ok) return;
         try { await state.backend.logoutAll(); } catch (ex) { /* ignore */ }
         saveDraftNow();

@@ -256,7 +256,8 @@ select.input--sm { padding-right: 28px; background-position: right 7px center; }
 .row__tools { display: flex; gap: 0; }
 .row__ctl { display: contents; }
 @media (max-width: 760px) {
-  .row { grid-template-columns: 44px minmax(0, 1fr) auto; grid-template-areas: "img main tools" "img ctl ctl"; row-gap: 8px; }
+  /* Price and availability get the whole width under the photo and name, so they fit on one line. */
+  .row { grid-template-columns: 44px minmax(0, 1fr) auto; grid-template-areas: "img main tools" "ctl ctl ctl"; row-gap: 8px; }
   .row__img { grid-area: img; width: 44px; height: 44px; align-self: start; }
   .row__main { grid-area: main; }
   .row__ctl { grid-area: ctl; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
