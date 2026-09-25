@@ -118,6 +118,7 @@
     undo: '<path d="M9 7L4.5 11.5 9 16"/><path d="M5 11.5h9a5 5 0 0 1 0 10h-2"/>',
     copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/>',
     calendar: '<rect x="4" y="5.5" width="16" height="14.5" rx="2"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/>',
+    phone: '<path d="M6.5 3.5h3l1.5 4.5-2 1.5a11 11 0 0 0 5.5 5.5l1.5-2 4.5 1.5v3a2 2 0 0 1-2 2A16 16 0 0 1 4.5 5.5a2 2 0 0 1 2-2z"/>',
     move: '<path d="M12 3.5v17M3.5 12h17"/><path d="M9.5 6L12 3.5 14.5 6M9.5 18l2.5 2.5 2.5-2.5M6 9.5L3.5 12 6 14.5M18 9.5l2.5 2.5-2.5 2.5"/>',
   };
   const icon = (name) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ICONS[name] || ''}</svg>`;
@@ -319,6 +320,8 @@
     saveUser: (name, password) => request('POST', '/api/users', { name, password }),
     deleteUser: (name) => request('DELETE', `/api/users/${encodeURIComponent(name)}`),
     changePassword: (current, next) => request('POST', '/api/password', { current, next }),
+    phoneCalls: () => request('GET', '/api/phone'),
+    markCall: (id, done) => request('POST', `/api/phone/${encodeURIComponent(id)}`, { done: !!done }),
     imageUrl: (id, variant) => `/img/${encodeURIComponent(id)}${variant === 'm' ? '?v=m' : ''}`,
     preload: async () => {},
   };
@@ -459,6 +462,27 @@
     async saveUser() { throw new ApiError(400, 'test', 'Staff logins are managed in the live panel. In test mode, use staff / 1234.'); },
     async deleteUser() { throw new ApiError(400, 'test', 'Staff logins are managed in the live panel.'); },
     async changePassword() { throw new ApiError(400, 'test', 'Test mode always uses the passcode 1234. The live panel lets you change yours.'); },
+    /* Test mode shows two made-up calls so you can see how the list works. */
+    testCalls() {
+      const saved = store.get('delice-admin-test-calls', null);
+      if (Array.isArray(saved)) return saved;
+      const t = Date.now();
+      return [
+        { id: 2, at: t - 25 * 60e3, kind: 'cake', name: 'Sample caller', number: '3105550123', callerId: '3105550123', summary: 'Napoleon cake, 8 inch, for Sunday',
+          details: 'Napoleon 8" × 8" ($59). Writing: "Happy Birthday Maya". Pickup Sunday at 11 am.', wanted: 'Sunday, 11:00 am (pickup)', followUp: 'Call back to confirm the cake.', lang: 'en', doneAt: null, test: true },
+        { id: 1, at: t - 3 * 3600e3, kind: 'catering', name: 'Sample caller', number: '3105550188', callerId: '', summary: 'Pastry platters for 40 people',
+          details: 'Office breakfast, about 40 people, mini croissants and pastries. Drop-off in Century City.', wanted: 'Next Thursday, 9:00 am', followUp: 'Call back with a catering quote.', lang: 'en', doneAt: t - 3600e3, doneBy: 'admin', test: true },
+      ];
+    },
+    async phoneCalls() {
+      const calls = this.testCalls();
+      return { calls, open: calls.filter((c) => !c.doneAt).length, ready: true, test: true };
+    },
+    async markCall(id, done) {
+      const calls = this.testCalls().map((c) => (c.id === Number(id) ? { ...c, doneAt: done ? Date.now() : null, doneBy: done ? (state.user || 'admin') : null } : c));
+      store.set('delice-admin-test-calls', calls);
+      return { ok: true };
+    },
     imageUrl(id, variant) { return this.urls.get(`${id}:${variant === 'm' ? 'm' : 'full'}`) || ''; },
     async preload(docs) {
       const ids = new Set();
@@ -661,11 +685,12 @@
     ['home', 'Home page', 'home'],
     ['galleries', 'Photo galleries', 'gallery'],
     ['hours', 'Hours & holidays', 'clock'],
+    ['phone', 'Phone calls', 'phone'],
     ['info', 'Announcement & contact', 'megaphone'],
     ['history', 'History & backup', 'history'],
     ['security', 'Logins & security', 'lock'],
   ];
-  const STAFF_TABS = ['menu', 'hours', 'info', 'security'];
+  const STAFF_TABS = ['menu', 'hours', 'phone', 'info', 'security'];
   const isOwner = () => state.role !== 'staff';
   const tabsFor = () => TABS.filter(([k]) => isOwner() || STAFF_TABS.includes(k));
 
@@ -889,7 +914,7 @@
       '<div class="banner banner--info" data-restored hidden><span data-restored-text></span> <button type="button" class="btn btn--quiet btn--sm" data-act="drop-restored">Discard them</button></div>' +
       '<div class="layout">' +
         '<nav class="sidenav" aria-label="Admin sections"><ul>' +
-          tabsFor().map(([key, label, ic]) => `<li><button type="button" data-tab="${key}">${icon(ic)}<span>${esc(label)}</span></button></li>`).join('') +
+          tabsFor().map(([key, label, ic]) => `<li><button type="button" data-tab="${key}">${icon(ic)}<span>${esc(label)}</span>${key === 'phone' ? '<span class="navcount" data-callcount hidden></span>' : ''}</button></li>`).join('') +
         '</ul>' +
         `<a class="sidenav__site" href="${esc(siteLink('index'))}" target="_blank" rel="noopener">${icon('external')}<span>View website</span></a></nav>` +
         '<main class="main" id="admin-main" tabindex="-1"></main>' +
@@ -901,6 +926,7 @@
     shell.addEventListener('click', onShellClick);
     renderTab();
     refreshStatus();
+    refreshCallCount();
   }
 
   async function onShellClick(e) {
@@ -950,7 +976,7 @@
     $$('.sidenav [data-tab]').forEach((b) => {
       if (b.getAttribute('data-tab') === state.tab) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
     });
-    const views = { menu: viewMenu, home: viewHome, galleries: viewGalleries, hours: viewHours, info: viewInfo, history: viewHistory, security: viewSecurity };
+    const views = { menu: viewMenu, home: viewHome, galleries: viewGalleries, hours: viewHours, phone: viewPhone, info: viewInfo, history: viewHistory, security: viewSecurity };
     const scrollY = window.scrollY;
     main.innerHTML = '';
     (views[state.tab] || viewMenu)(main);
@@ -1119,7 +1145,7 @@
           saveDraftNow();
           clearInterval(aliveTimer);
           renderLogin({ message: 'Your login ended. Log in again to keep going. Your changes are kept in this browser.' });
-        }
+        } else if (s.authenticated) refreshCallCount();
       } catch (e) { /* offline: try again later */ }
     }, 4 * 60e3);
   }
@@ -2707,6 +2733,119 @@
         Object.assign(a, { text: '', link: '', linkText: '', from: '', until: '' });
         changed({ rerender: true, focus: '#an-text' });
         withUndo('Announcement cleared. Publish to hide the bar.', snap);
+      }
+    });
+  }
+  /* ------------------------------------------------------------------ phone calls (from the phone agent) */
+  const CALL_KIND = { order: 'Order', cake: 'Cake order', catering: 'Catering', callback: 'Callback', complaint: 'Complaint', message: 'Message' };
+  function fmtPhone(d) {
+    const s = String(d || '');
+    return s.length === 10 ? `(${s.slice(0, 3)}) ${s.slice(3, 6)}-${s.slice(6)}` : s;
+  }
+  function setCallCount(n) {
+    const el = $('[data-callcount]');
+    if (!el) return;
+    el.hidden = !n;
+    el.textContent = n > 99 ? '99+' : String(n || '');
+    const btn = el.closest('button');
+    if (btn) btn.setAttribute('aria-label', n ? `Phone calls, ${plural(n, 'call')} to handle` : 'Phone calls');
+  }
+  async function refreshCallCount() {
+    if (!state.backend.phoneCalls) return;
+    try { setCallCount((await state.backend.phoneCalls()).open); } catch (e) { /* try again later */ }
+  }
+
+  function viewPhone(main) {
+    const view = doc.createElement('div');
+    view.className = 'view';
+    view.innerHTML =
+      '<div class="view__head"><div><h1 tabindex="-1">Phone calls</h1>' +
+        '<p class="muted">Orders, cake and catering requests, callbacks and complaints taken by the phone agent. Call the customer back, then tick the call off.</p></div>' +
+        `<button type="button" class="btn btn--quiet" data-act="calls-refresh">${icon('undo')}Refresh</button></div>` +
+      '<div data-calls aria-busy="true"><p class="muted">Loading…</p></div>';
+    main.appendChild(view);
+    const box = $('[data-calls]', view);
+    let calls = [];
+    let showDone = false;
+
+    const card = (c) => {
+      const tel = c.number ? `<a href="tel:+1${esc(c.number)}">${esc(fmtPhone(c.number))}</a>` : '<span class="muted">No number given</span>';
+      const other = c.callerId && c.callerId !== c.number ? `<span class="muted small"> · called from ${esc(fmtPhone(c.callerId))}</span>` : '';
+      return `<li class="call${c.doneAt ? ' call--done' : ''}" data-call="${c.id}">` +
+        '<div class="call__head">' +
+          `<span class="badge ${c.kind === 'complaint' ? 'badge--warn' : c.kind === 'order' || c.kind === 'cake' ? 'badge--gold' : ''}">${esc(CALL_KIND[c.kind] || 'Message')}</span>` +
+          (c.lang === 'es' ? '<span class="badge badge--muted">Spanish</span>' : '') +
+          `<span class="muted small">${esc(fmtAgo(c.at))}</span>` +
+        '</div>' +
+        `<h3 class="call__title">${esc(c.summary || 'Phone call')}</h3>` +
+        `<p class="call__who">${icon('user')}<strong>${esc(c.name || 'No name given')}</strong> · ${tel}${other}</p>` +
+        (c.wanted ? `<p class="call__when">${icon('calendar')}${esc(c.wanted)}</p>` : '') +
+        (c.details ? `<p class="call__details">${esc(c.details).replace(/\n/g, '<br>')}</p>` : '') +
+        (c.followUp ? `<p class="call__todo"><strong>To do:</strong> ${esc(c.followUp)}</p>` : '') +
+        '<div class="btn-row btn-row--tight">' +
+          (c.doneAt
+            ? `<span class="muted small">${icon('check')}Handled${c.doneBy ? ` by ${esc(c.doneBy)}` : ''} · ${esc(fmtStamp(c.doneAt))}</span><button type="button" class="btn btn--quiet btn--sm" data-act="call-reopen">Not handled yet</button>`
+            : `<button type="button" class="btn btn--primary btn--sm" data-act="call-done">${icon('check')}Mark as handled</button>`) +
+        '</div></li>';
+    };
+    const draw = (data) => {
+      box.removeAttribute('aria-busy');
+      const open = calls.filter((c) => !c.doneAt);
+      const done = calls.filter((c) => c.doneAt);
+      setCallCount(open.length);
+      let h = '';
+      if (data && data.test) h += '<p class="note note--test">Test mode shows two made-up calls. Real calls from the phone agent show in the live panel.</p>';
+      else if (data && data.ready === false) h += '<p class="note note--warn">The phone agent isn’t connected to this panel yet.</p>';
+      h += `<section class="card" aria-labelledby="calls-open"><h2 id="calls-open">To handle${open.length ? ` <span class="badge badge--warn">${open.length}</span>` : ''}</h2>` +
+        (open.length ? `<ul class="calls">${open.map(card).join('')}</ul>` : '<p class="empty">Nothing to handle. New calls show up here.</p>') + '</section>';
+      if (done.length) {
+        h += `<section class="card" aria-labelledby="calls-done"><h2 id="calls-done">Handled</h2>` +
+          `<button type="button" class="btn btn--quiet btn--sm" data-act="calls-toggle" aria-expanded="${showDone}">${showDone ? 'Hide' : 'Show'} ${plural(done.length, 'handled call')}</button>` +
+          (showDone ? `<ul class="calls">${done.map(card).join('')}</ul>` : '') + '</section>';
+      }
+      box.innerHTML = h;
+    };
+    const load = async () => {
+      try {
+        const data = await state.backend.phoneCalls();
+        calls = data.calls || [];
+        draw(data);
+      } catch (ex) {
+        box.removeAttribute('aria-busy');
+        if (ex.code === 'signed_out' || ex.status === 401) { handleSaveError(ex); return; }
+        box.innerHTML = `<p class="form-error">${esc(ex.message)}</p>`;
+      }
+    };
+    load();
+    const timer = setInterval(() => { if (!view.isConnected) { clearInterval(timer); return; } if (Date.now() - state.lastActivity < 10 * 60e3) load(); }, 60e3);
+
+    view.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-act]');
+      if (!b) return;
+      const act = b.getAttribute('data-act');
+      if (act === 'calls-refresh') { box.setAttribute('aria-busy', 'true'); await load(); toast('Up to date.'); return; }
+      if (act === 'calls-toggle') { showDone = !showDone; draw({}); return; }
+      const li = b.closest('[data-call]');
+      if (!li) return;
+      const id = Number(li.getAttribute('data-call'));
+      const done = act === 'call-done';
+      if (act !== 'call-done' && act !== 'call-reopen') return;
+      b.disabled = true;
+      try {
+        await state.backend.markCall(id, done);
+        calls = calls.map((c) => (c.id === id ? { ...c, doneAt: done ? Date.now() : null, doneBy: done ? state.user : null } : c));
+        draw({});
+        const c = calls.find((x) => x.id === id);
+        if (done) {
+          toast(`Marked ${c && c.name ? `${c.name}’s call` : 'the call'} as handled.`, 'ok', { label: 'Undo', run: async () => {
+            await state.backend.markCall(id, false);
+            calls = calls.map((x) => (x.id === id ? { ...x, doneAt: null, doneBy: null } : x));
+            draw({});
+          } });
+        }
+      } catch (ex) {
+        b.disabled = false;
+        if (ex.code === 'signed_out' || ex.status === 401) handleSaveError(ex); else toast(ex.message, 'error');
       }
     });
   }

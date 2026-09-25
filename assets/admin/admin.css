@@ -449,3 +449,21 @@ fieldset.plain legend { font-weight: 650; font-size: .9rem; margin: 0 0 8px; pad
   .gtile__acts .icon-btn { width: 29px; height: 32px; }
   .gal__strip-cta { padding-left: 36px; }
 }
+
+/* Phone calls */
+.navcount { margin-left: auto; min-width: 20px; padding: 1px 7px; border-radius: 999px; background: #b4412c; color: #fff; font-size: .72rem; font-weight: 700; text-align: center; line-height: 1.5; }
+.sidenav button[aria-current="page"] .navcount { background: #d6b46f; color: var(--ink); }
+.calls { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 12px; }
+.call { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; background: #fffdf9; min-width: 0; }
+.call--done { background: #f7f5f1; }
+.call--done .call__title, .call--done .call__details { color: var(--muted); }
+.call__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+.call__head .muted { margin-left: auto; }
+.call__title { font-size: 1.02rem; margin: 0 0 6px; overflow-wrap: anywhere; }
+.call__who, .call__when { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 4px; font-size: .92rem; }
+.call__who .i, .call__when .i { width: 16px; height: 16px; color: var(--gold); }
+.call__who a { font-weight: 700; }
+.call__details { margin: 8px 0; font-size: .92rem; white-space: normal; overflow-wrap: anywhere; }
+.call__todo { margin: 0 0 10px; font-size: .9rem; background: var(--gold-soft); border-radius: 8px; padding: 7px 10px; }
+.call .btn-row .muted { display: inline-flex; align-items: center; gap: 4px; }
+.call .btn-row .i { width: 15px; height: 15px; }
