@@ -101,6 +101,8 @@
     check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
     tag: '<path d="M3.5 12.5V4.5h8l9 9-8 8z"/><circle cx="8" cy="9" r="1.5"/>',
     home: '<path d="M4 11l8-6.5 8 6.5M6 9.5V20h12V9.5"/><path d="M10 20v-5h4v5"/>',
+    list: '<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>', chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+    chef: '<path d="M7 14v6h10v-6M7 14a4 4 0 1 1 1.5-7.7A4 4 0 0 1 16 5a4 4 0 1 1 1 9M7 17h10"/>', gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
     gallery: '<rect x="3.5" y="3.5" width="7.5" height="7.5" rx="1.5"/><rect x="13" y="3.5" width="7.5" height="7.5" rx="1.5"/><rect x="3.5" y="13" width="7.5" height="7.5" rx="1.5"/><rect x="13" y="13" width="7.5" height="7.5" rx="1.5"/>',
     clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
     megaphone: '<path d="M4 10v4h3l7 4V6L7 10z"/><path d="M17.5 9a4 4 0 0 1 0 6"/>',
@@ -691,6 +693,8 @@
     ['security', 'Logins & security', 'lock'],
   ];
   const STAFF_TABS = ['menu', 'hours', 'phone', 'info', 'security'];
+  // the Orders & kitchen pages (/ops/), for the owner and admin logins
+  const OPS_LINKS = [['today', 'Today', 'home'], ['orders', 'Orders', 'list'], ['dashboard', 'Dashboard', 'chart'], ['customers', 'Customers', 'user'], ['kitchen', 'Kitchen & staff', 'chef'], ['settings', 'Settings', 'gear']];
   const isOwner = () => state.role !== 'staff';
   const tabsFor = () => TABS.filter(([k]) => isOwner() || STAFF_TABS.includes(k));
 
@@ -883,6 +887,9 @@
           : 'We brought back changes you hadn’t published. The website was updated since then, so check them before publishing.';
       } else store.del(DRAFT_KEY());
     }
+    // a link from Orders & kitchen (/#hours, /#phone…) opens that page
+    const want = (location.hash || '').replace(/^#\/?/, '');
+    if (want && tabsFor().some(([k]) => k === want)) state.tab = want;
     if (!tabsFor().some(([k]) => k === state.tab)) state.tab = 'menu';
     renderShell();
     if (restoredNote) {
@@ -914,6 +921,7 @@
       '<div class="banner banner--info" data-restored hidden><span data-restored-text></span> <button type="button" class="btn btn--quiet btn--sm" data-act="drop-restored">Discard them</button></div>' +
       '<div class="layout">' +
         '<nav class="sidenav" aria-label="Admin sections"><ul>' +
+          (IS_SERVER && isOwner() ? '<li class="sidenav__group">Orders &amp; kitchen</li>' + OPS_LINKS.map(([key, label, ic]) => `<li><a class="sidenav__link" href="/ops/#/${key}">${icon(ic)}<span>${esc(label)}</span></a></li>`).join('') + '<li class="sidenav__group">Website</li>' : '') +
           tabsFor().map(([key, label, ic]) => `<li><button type="button" data-tab="${key}">${icon(ic)}<span>${esc(label)}</span>${key === 'phone' ? '<span class="navcount" data-callcount hidden></span>' : ''}</button></li>`).join('') +
         '</ul>' +
         `<a class="sidenav__site" href="${esc(siteLink('index'))}" target="_blank" rel="noopener">${icon('external')}<span>View website</span></a></nav>` +
@@ -2679,7 +2687,7 @@
           `<div class="field"><label for="in-phone">Phone</label><input class="input" id="in-phone" type="tel" maxlength="30" value="${esc(info.phone)}" autocomplete="off"></div>` +
           `<div class="field"><label for="in-email">E-mail <span class="muted">(orders and the contact form go here)</span></label><input class="input" id="in-email" type="email" maxlength="80" value="${esc(info.email)}" autocomplete="off"></div>` +
         '</div>' +
-        `<div class="field"><label for="in-order">Online ordering link <span class="muted">(the “Order online” buttons)</span></label><input class="input" id="in-order" type="url" maxlength="${R.LIMITS.url}" value="${esc(info.orderUrl)}"></div>` +
+        `<div class="field"><label for="in-order">Online ordering link <span class="muted">(the “Order online” buttons; order.html is the bakery’s own order page)</span></label><input class="input" id="in-order" type="text" inputmode="url" maxlength="${R.LIMITS.url}" value="${esc(info.orderUrl)}"></div>` +
       '</section>' : '');
     main.appendChild(view);
 
@@ -2702,7 +2710,7 @@
       else if (t.id === 'an-ltext') a.linkText = t.value;
       else if (t.id === 'in-phone') { info.phone = t.value; fieldError(t, t.value.replace(/\D/g, '').length >= 10 ? '' : 'Enter the full phone number.'); }
       else if (t.id === 'in-email') { info.email = t.value.trim(); fieldError(t, /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(info.email) ? '' : 'Enter an e-mail address like name@example.com'); }
-      else if (t.id === 'in-order') { info.orderUrl = t.value.trim(); fieldError(t, /^https:\/\/\S+$/.test(info.orderUrl) ? '' : 'Use a full address starting with https://'); }
+      else if (t.id === 'in-order') { info.orderUrl = t.value.trim(); fieldError(t, /^https:\/\/\S+$/.test(info.orderUrl) || /^[a-z0-9-]+\.html(#[a-z0-9-]+)?$/.test(info.orderUrl) ? '' : 'Use order.html (the order page) or a full address starting with https://'); }
       else return;
       changed();
       drawAnn();
@@ -2783,6 +2791,7 @@
         (c.details ? `<p class="call__details">${esc(c.details).replace(/\n/g, '<br>')}</p>` : '') +
         (c.followUp ? `<p class="call__todo"><strong>To do:</strong> ${esc(c.followUp)}</p>` : '') +
         '<div class="btn-row btn-row--tight">' +
+          (IS_SERVER && isOwner() && ['order', 'cake', 'catering'].includes(c.kind) ? `<a class="btn btn--quiet btn--sm" href="/ops/#/orders/new?call=${c.id}">${icon('plus')}Make a kitchen order</a>` : '') +
           (c.doneAt
             ? `<span class="muted small">${icon('check')}Handled${c.doneBy ? ` by ${esc(c.doneBy)}` : ''} · ${esc(fmtStamp(c.doneAt))}</span><button type="button" class="btn btn--quiet btn--sm" data-act="call-reopen">Not handled yet</button>`
             : `<button type="button" class="btn btn--primary btn--sm" data-act="call-done">${icon('check')}Mark as handled</button>`) +

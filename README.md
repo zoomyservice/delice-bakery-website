@@ -16,7 +16,10 @@ Static site (plain HTML/CSS/JS) served from GitHub Pages. To use delicebakery.co
 `CNAME` file containing `www.delicebakery.com`, then point the domain's DNS at GitHub Pages.
 
 ## Ordering and forms
-- "Order online" buttons go to the bakery's ChowNow page.
+- "Order online" buttons go to the bakery's own order page, `order.html` (`assets/js/order.js`, `assets/css/order.css`):
+  pickup orders paid at the bakery. The menu, prices, pickup times and the orders themselves live in the admin
+  panel (Orders & kitchen), so the kitchen screen gets every order right away. The cart stays in the visitor's
+  browser until they order.
 - Contact and newsletter forms open the visitor's email app addressed to
   delicebakery26@gmail.com. To receive them automatically instead, create a free form at
   formspree.io and set `"provider": "formspree"` and the `"endpoint"` in the `delice-config`

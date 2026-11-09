@@ -165,8 +165,10 @@ select.input--sm { padding-right: 28px; background-position: right 7px center; }
 .layout { display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: calc(100vh - var(--top-h)); }
 .sidenav { background: #fbf8f3; border-right: 1px solid var(--line); padding: 16px 12px; position: sticky; top: var(--top-h); height: calc(100vh - var(--top-h)); overflow-y: auto; display: flex; flex-direction: column; }
 .sidenav ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.sidenav button, .sidenav__site { width: 100%; display: flex; align-items: center; gap: 11px; padding: 10px 12px; border: 0; border-radius: 9px; background: none; font: 600 .93rem var(--font); color: #4a3d31; cursor: pointer; text-align: left; text-decoration: none; }
-.sidenav button:hover, .sidenav__site:hover { background: var(--gold-soft); color: var(--ink); }
+.sidenav button, .sidenav__site, .sidenav__link { width: 100%; display: flex; align-items: center; gap: 11px; padding: 10px 12px; border: 0; border-radius: 9px; background: none; font: 600 .93rem var(--font); color: #4a3d31; cursor: pointer; text-align: left; text-decoration: none; }
+.sidenav button:hover, .sidenav__site:hover, .sidenav__link:hover { background: var(--gold-soft); color: var(--ink); }
+.sidenav__group { font: 600 .7rem var(--font); letter-spacing: .14em; text-transform: uppercase; color: #9a8b7c; padding: 12px 12px 4px; }
+.sidenav__group:first-child { padding-top: 2px; }
 .sidenav button[aria-current="page"] { background: var(--ink); color: #f6e7c8; }
 .sidenav button[aria-current="page"] .i { color: #d6b46f; }
 .sidenav__site { margin-top: auto; color: var(--gold); }
@@ -467,3 +469,9 @@ fieldset.plain legend { font-weight: 650; font-size: .9rem; margin: 0 0 8px; pad
 .call__todo { margin: 0 0 10px; font-size: .9rem; background: var(--gold-soft); border-radius: 8px; padding: 7px 10px; }
 .call .btn-row .muted { display: inline-flex; align-items: center; gap: 4px; }
 .call .btn-row .i { width: 15px; height: 15px; }
+
+@media (max-width: 900px) {
+  .sidenav .sidenav__link { width: auto; white-space: nowrap; padding: 8px 12px; font-size: .88rem; }
+  .sidenav .sidenav__group { white-space: nowrap; align-self: center; padding: 0 4px 0 10px; border-left: 1px solid var(--line); }
+  .sidenav .sidenav__group:first-child { border-left: 0; padding-left: 4px; }
+}

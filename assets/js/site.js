@@ -258,6 +258,15 @@
     }
   }
 
+  /* ---------- the order page's cart: how many items, on the header's "Order online" button ---------- */
+  function cartCount() {
+    var n = 0;
+    try { var c = JSON.parse(store.get("delice-cart-v1") || "null"); if (c && c.lines) c.lines.forEach(function (l) { n += Number(l.qty) || 0; }); } catch (e) { /* none */ }
+    document.querySelectorAll(".order-top .cart-count").forEach(function (b) { b.textContent = n; b.hidden = !n; });
+  }
+  cartCount();
+  window.addEventListener("storage", function (e) { if (e.key === "delice-cart-v1") cartCount(); });
+
   /* ---------- start, and a hook for live changes (live.js) ---------- */
   function refresh(root) {
     bind(root);

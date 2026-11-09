@@ -792,7 +792,7 @@
     var info = d.info || {};
     if (info.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(info.email)) add("The e-mail address doesn’t look right.", { tab: "info", sel: "#in-email" });
     if (info.phone && (info.phone.replace(/\D/g, "").length < 10)) add("The phone number needs at least 10 digits.", { tab: "info", sel: "#in-phone" });
-    if (info.orderUrl && !/^https:\/\/[^\s"'<>]+$/i.test(info.orderUrl)) add("The online ordering link must start with https://", { tab: "info", sel: "#in-order" });
+    if (info.orderUrl && !/^https:\/\/[^\s"'<>]+$/i.test(info.orderUrl) && !/^[a-z0-9-]+\.html(#[a-z0-9-]+)?$/.test(info.orderUrl)) add("The online ordering link must be a page of the website (order.html) or start with https://", { tab: "info", sel: "#in-order" });
     weekHours(d).forEach(function (h) {
       if ((h.open || h.close) && !(validTime(h.open) && validTime(h.close))) add(DAY[h.day] + " needs both an opening and a closing time.", { tab: "hours" });
       else if (h.open && h.close <= h.open) add("On " + DAY[h.day] + ", closing time must be after opening time.", { tab: "hours" });
