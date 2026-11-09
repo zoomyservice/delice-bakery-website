@@ -88,6 +88,7 @@
 
   const ICONS = {
     plus: '<path d="M12 5v14M5 12h14"/>',
+    minus: '<path d="M5 12h14"/>',
     up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
     down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
     left: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
@@ -892,12 +893,193 @@
     if (want && tabsFor().some(([k]) => k === want)) state.tab = want;
     if (!tabsFor().some(([k]) => k === state.tab)) state.tab = 'menu';
     renderShell();
+    if (/^ops(\/|$)/.test(want)) showOps(want.slice(4) || 'today');
     if (restoredNote) {
       const n = $('[data-restored]');
       n.hidden = false;
       $('[data-restored-text]', n).textContent = restoredNote;
     }
     keepAlive();
+  }
+
+  /* ------------------------------------------------------------------ phone call → kitchen order (Orders & kitchen)
+     The phone agent sends the order as a list (exact menu names, sizes, quantities, flavors, pickup day and time).
+     The server checks each line against the menu: a line is ready only when the item, size and flavor are certain;
+     anything unclear asks you to pick. Nothing is added to the kitchen until you press Add order. */
+  async function opsApi(method, path, body) {
+    const opts = { method, credentials: 'same-origin', cache: 'no-store', headers: { 'X-Delice-Admin': '1' } };
+    if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    let res;
+    try { res = await fetch('/api/admin/ops' + path + (path.includes('?') ? '&' : '?') + 'store=delice', opts); } catch (e) { throw new ApiError(0, 'offline', 'Can’t reach the server. Check your internet connection and try again.'); }
+    let data = null;
+    try { data = await res.json(); } catch (e) { /* not JSON */ }
+    if (!res.ok) throw new ApiError(res.status, 'error', (data && data.error) || `The server answered with an error (${res.status}).`, data || {});
+    return data;
+  }
+  const money = (c) => `$${((c || 0) / 100).toFixed(2)}`;
+  const time12 = (t) => { const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}${m ? ':' + String(m).padStart(2, '0') : ''} ${h >= 12 ? 'PM' : 'AM'}`; };
+  async function callOrder(callId, onDone) {
+    const dlg = openDialog({
+      title: 'Kitchen order from this call', size: 'lg',
+      body: '<p class="muted" aria-busy="true">Reading the call…</p>',
+      foot: '<button type="button" class="btn btn--quiet" data-dlg-close>Cancel</button><button type="submit" class="btn btn--primary" data-ok disabled>Add order</button>',
+      confirmClose: () => !!(st && st.touched && !st.saved),
+      onSubmit: () => save(),
+    });
+    let st = null;
+    let d;
+    try { d = await opsApi('GET', `/calls/${callId}/draft`); } catch (ex) { dlg.body.innerHTML = `<p class="form-error">${esc(ex.message)}</p>`; return; }
+    if (d.order && d.order.status !== 'cancelled') {
+      dlg.body.innerHTML = `<p>This call already has <strong>order ${esc(d.order.no)}</strong>.</p><p><a href="#ops/orders/${d.order.id}" data-dlg-close>Open order ${esc(d.order.no)}</a></p>`;
+      $('[data-ok]', dlg.box).remove();
+      return;
+    }
+    const byId = new Map(d.menu.map((m) => [m.id, m]));
+    const groupOf = (gid) => d.groups.find((g) => g.id === gid);
+    st = { name: d.name, phone: d.phone, date: d.date || d.today, time: d.time, note: d.note, slots: d.slots, hours: d.hours, markDone: true, touched: false, saved: false,
+      lines: d.lines.map((l) => ({ ...l, picks: l.picks || [] })) };
+    // price and options of a line once its item, size and flavors are set
+    const settle = (l) => {
+      const it = l.id && byId.get(l.id);
+      if (!it) { l.status = 'pick_item'; return l; }
+      const size = it.sizes.find((z) => z.id === l.size) || (it.sizes.length === 1 ? it.sizes[0] : null);
+      if (!size) { l.status = 'pick_size'; l.size = ''; return l; }
+      l.size = size.id;
+      const picks = [];
+      for (const gid of it.extras || []) {
+        const g = groupOf(gid); if (!g) continue;
+        const k = (l.picks || []).find((p) => p.startsWith(gid + ':'));
+        const o = k && g.options.find((x) => x.id === k.split(':')[1]);
+        if (!o) { l.status = 'pick_choice'; l.choice_group = gid; return l; }
+        picks.push(o);
+      }
+      l.unit = size.price + picks.reduce((a, o) => a + (o.price || 0), 0);
+      l.opts = [it.sizes.length > 1 ? size.name : '', ...picks.map((o) => '+ ' + o.name)].filter(Boolean).join(' · ');
+      l.name = it.name; l.status = 'ok';
+      return l;
+    };
+    // what's still missing before the order can be added (shown on the button), or '' when it's ready
+    const missing = () => !st.lines.length ? 'Add an item first'
+      : !st.lines.every((l) => l.status === 'ok') ? 'Choose the options above'
+      : !st.name.trim() ? 'Add the name'
+      : st.phone.replace(/\D/g, '').length < 10 ? 'Add the phone number'
+      : !st.date ? 'Pick the pickup day'
+      : !st.time ? 'Pick the pickup time' : '';
+    const ready = () => !missing();
+    const okLabel = (total) => missing() || (st.lines.length ? `Add order · ${money(total)}` : 'Add order');
+    const lineHtml = (l, i) => {
+      const it = l.id && byId.get(l.id);
+      let pick = '';
+      if (l.status === 'pick_item') {
+        pick = `<label class="sr-only" for="co-item-${i}">Which item</label><select class="input input--sm" id="co-item-${i}" data-co="item" data-i="${i}"><option value="">Which item is it?</option>` +
+          (l.candidates || []).map((c) => `<option value="${esc(c.id)}">${esc(c.name)} · ${esc(c.category)}</option>`).join('') +
+          `<option value="" disabled>──────────</option>` + d.menu.map((m) => `<option value="${esc(m.id)}">${esc(m.name)} · ${esc(m.category)}</option>`).join('') + '</select>';
+      } else if (it && it.sizes.length > 1) {
+        pick = `<select class="input input--sm${l.status === 'pick_size' ? ' is-needed' : ''}" data-co="size" data-i="${i}" aria-label="Size of ${esc(it.name)}"><option value="">${l.status === 'pick_size' ? 'Which size?' : 'Size'}</option>` +
+          it.sizes.map((z) => `<option value="${esc(z.id)}"${z.id === l.size ? ' selected' : ''}>${esc(z.name || 'Regular')} · ${money(z.price)}</option>`).join('') + '</select>';
+      }
+      if (it && l.status !== 'pick_item') {
+        for (const gid of it.extras || []) {
+          const g = groupOf(gid); if (!g) continue;
+          const cur = (l.picks || []).find((p) => p.startsWith(gid + ':'));
+          pick += ` <select class="input input--sm${!cur ? ' is-needed' : ''}" data-co="pick" data-g="${esc(gid)}" data-i="${i}" aria-label="${esc(g.name)} for ${esc(it.name)}"><option value="">${esc(g.name)}?</option>` +
+            g.options.map((o) => `<option value="${esc(gid + ':' + o.id)}"${cur === gid + ':' + o.id ? ' selected' : ''}>${esc(o.name)}</option>`).join('') + '</select>';
+        }
+      }
+      const flag = l.status === 'ok' ? `<span class="badge badge--ok">${icon('check')}Ready</span>` : `<span class="badge badge--warn">${l.status === 'pick_item' ? 'Pick the item' : l.status === 'pick_size' ? 'Pick the size' : 'Pick the flavor'}</span>`;
+      return `<li class="co-line${l.status === 'ok' ? '' : ' is-open'}">` +
+        `<div class="co-line__main"><div class="co-line__name"><strong>${esc(it && l.status !== 'pick_item' ? it.name : l.said || 'An item')}</strong>${l.opts && l.status === 'ok' ? ` <span class="muted small">${esc(l.opts)}</span>` : ''} ${flag}` +
+          (l.from === 'list' && l.said && (!it || l.status !== 'ok' || norm(l.said).indexOf(norm(it.name)) < 0) ? `<div class="hint">The caller said: “${esc(l.said)}”</div>` : '') +
+          (l.sold_out ? `<div class="hint">${esc(l.sold_out)} on the website (you can still add it here)</div>` : '') + '</div>' +
+          (pick ? `<div class="co-line__pick">${pick}</div>` : '') + '</div>' +
+        `<div class="co-line__qty"><button type="button" class="icon-btn" data-co="minus" data-i="${i}" aria-label="One less">${icon('minus')}</button><span>${l.qty}</span><button type="button" class="icon-btn" data-co="plus" data-i="${i}" aria-label="One more">${icon('plus')}</button></div>` +
+        `<div class="co-line__price">${l.status === 'ok' ? money(l.unit * l.qty) : '—'}</div>` +
+        `<button type="button" class="icon-btn icon-btn--danger" data-co="remove" data-i="${i}" aria-label="Remove">${icon('trash')}</button></li>`;
+    };
+    function norm(x) { return String(x || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim(); }
+    const draw = () => {
+      st.lines.forEach(settle);
+      const open = st.lines.filter((l) => l.status !== 'ok').length;
+      const total = st.lines.filter((l) => l.status === 'ok').reduce((a, l) => a + l.unit * l.qty, 0);
+      const slots = st.slots || [];
+      const c = d.call;
+      dlg.body.innerHTML =
+        `<div class="co-call"><span class="badge badge--gold">Phone call</span> <strong>${esc(c.summary || 'Phone call')}</strong>${c.details ? `<p class="small muted">${esc(c.details)}</p>` : ''}${c.wanted ? `<p class="small">${icon('calendar')} ${esc(c.wanted)}</p>` : ''}</div>` +
+        (d.from === 'text' ? '<p class="note note--warn">This call only came with a written summary, so the items below were read from it. Check each one against the call before adding.</p>' : '') +
+        (d.from === 'none' ? '<p class="note">No menu items were found in this call. Add them below.</p>' : '') +
+        (open ? `<p class="note note--warn">${open === 1 ? 'One line needs' : open + ' lines need'} a choice before the order can be added.</p>` : '') +
+        `<ul class="co-lines">${st.lines.map(lineHtml).join('')}</ul>` +
+        `<div class="co-add"><label class="sr-only" for="co-add">Add an item</label><select class="input input--sm" id="co-add" data-co="add"><option value="">+ Add another item…</option>${d.menu.map((m) => `<option value="${esc(m.id)}">${esc(m.name)} · ${esc(m.category)}</option>`).join('')}</select>` +
+          `<span class="co-total">Total before tax <strong>${money(total)}</strong></span></div>` +
+        '<div class="grid-2 co-who">' +
+          `<div class="field"><label for="co-name">Name</label><input class="input" id="co-name" data-co="name" maxlength="80" value="${esc(st.name)}"></div>` +
+          `<div class="field"><label for="co-phone">Phone</label><input class="input" id="co-phone" data-co="phone" type="tel" maxlength="30" value="${esc(st.phone)}"></div>` +
+          `<div class="field"><label for="co-date">Pickup day</label><input class="input" id="co-date" data-co="date" type="date" value="${esc(st.date)}">${st.hours && st.hours.closed ? '<p class="hint">The bakery is closed that day.</p>' : ''}</div>` +
+          `<div class="field"><label for="co-time">Pickup time</label><select class="input" id="co-time" data-co="time"><option value="">Pick a time</option>${st.time && !slots.includes(st.time) ? `<option value="${esc(st.time)}" selected>${esc(time12(st.time))}</option>` : ''}${slots.map((x) => `<option value="${x}"${x === st.time ? ' selected' : ''}>${esc(time12(x))}</option>`).join('')}</select></div>` +
+        '</div>' +
+        `<div class="field"><label for="co-note">Note for the kitchen</label><textarea class="input" id="co-note" data-co="note" rows="2" maxlength="300">${esc(st.note)}</textarea></div>` +
+        `<label class="check"><input type="checkbox" data-co="done"${st.markDone ? ' checked' : ''}> Also mark the call as handled</label>`;
+      const okBtn = $('[data-ok]', dlg.box);
+      okBtn.disabled = !ready();
+      okBtn.textContent = okLabel(total);
+    };
+    const loadSlots = async () => {
+      try { const t = await opsApi('GET', `/pickup-times?date=${st.date}`); st.slots = t.slots; st.hours = t.hours; if (st.time && !t.slots.includes(st.time) && !d.time) st.time = ''; } catch (e) { st.slots = []; }
+      draw();
+    };
+    dlg.body.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-co]'); if (!b) return;
+      const i = Number(b.getAttribute('data-i')); const l = st.lines[i]; st.touched = true;
+      const k = b.getAttribute('data-co');
+      if (k === 'plus') l.qty = Math.min(99, l.qty + 1);
+      if (k === 'minus') l.qty = Math.max(1, l.qty - 1);
+      if (k === 'remove') st.lines.splice(i, 1);
+      draw();
+    });
+    dlg.body.addEventListener('change', (e) => {
+      const t = e.target; const k = t.getAttribute('data-co'); if (!k) return;
+      st.touched = true;
+      const i = Number(t.getAttribute('data-i')); const l = st.lines[i];
+      if (k === 'item' && t.value) { const it = byId.get(t.value); Object.assign(l, { id: it.id, size: it.sizes.length === 1 ? it.sizes[0].id : '', picks: [], status: '' }); }
+      else if (k === 'size') l.size = t.value;
+      else if (k === 'pick') { const g = t.getAttribute('data-g'); l.picks = (l.picks || []).filter((p) => !p.startsWith(g + ':')).concat(t.value ? [t.value] : []); }
+      else if (k === 'add' && t.value) { const it = byId.get(t.value); st.lines.push({ id: it.id, size: it.sizes.length === 1 ? it.sizes[0].id : '', picks: [], qty: 1, from: 'added', said: '' }); }
+      else if (k === 'date') { st.date = t.value; st.time = ''; loadSlots(); return; }
+      else if (k === 'time') st.time = t.value;
+      else if (k === 'done') st.markDone = t.checked;
+      else return;
+      draw();
+    });
+    dlg.body.addEventListener('input', (e) => {
+      const k = e.target.getAttribute('data-co');
+      if (k === 'name' || k === 'phone' || k === 'note') {
+        st[k] = e.target.value; st.touched = true;
+        const okBtn = $('[data-ok]', dlg.box);
+        okBtn.disabled = !ready();
+        okBtn.textContent = okLabel(st.lines.filter((l) => l.status === 'ok').reduce((a, l) => a + l.unit * l.qty, 0));
+      }
+    });
+    async function save() {
+      if (!ready()) return;
+      const okBtn = $('[data-ok]', dlg.box);
+      okBtn.disabled = true; okBtn.textContent = 'Adding…';
+      try {
+        const r = await opsApi('POST', '/orders', { call_id: callId, mark_done: st.markDone, name: st.name.trim(), phone: st.phone, note: st.note, date: st.date, time: st.time,
+          lines: st.lines.map((l) => ({ id: l.id, size: l.size, extras: l.picks || [], qty: l.qty })) });
+        st.saved = true;
+        (r.warnings || []).forEach((w) => toast(w, 'error'));
+        dlg.close(true);
+        toast(`Order ${r.no} is in the kitchen.`, 'ok');
+        onDone({ ...r, markedDone: st.markDone });
+      } catch (ex) {
+        okBtn.disabled = false; okBtn.textContent = 'Add order';
+        let err = $('.form-error', dlg.body);
+        if (!err) { err = doc.createElement('p'); err.className = 'form-error'; err.setAttribute('role', 'alert'); dlg.body.prepend(err); }
+        err.textContent = ex.message;
+        if (ex.status === 409 && ex.extra && ex.extra.order) onDone({ id: ex.extra.order.id, no: ex.extra.order.no });
+      }
+    }
+    if (st.date && !d.slots.length && !d.date) await loadSlots(); else draw();
   }
 
   function renderShell() {
@@ -921,11 +1103,13 @@
       '<div class="banner banner--info" data-restored hidden><span data-restored-text></span> <button type="button" class="btn btn--quiet btn--sm" data-act="drop-restored">Discard them</button></div>' +
       '<div class="layout">' +
         '<nav class="sidenav" aria-label="Admin sections"><ul>' +
-          (IS_SERVER && isOwner() ? '<li class="sidenav__group">Orders &amp; kitchen</li>' + OPS_LINKS.map(([key, label, ic]) => `<li><a class="sidenav__link" href="/ops/#/${key}">${icon(ic)}<span>${esc(label)}</span></a></li>`).join('') + '<li class="sidenav__group">Website</li>' : '') +
+          (IS_SERVER && isOwner() ? '<li class="sidenav__group">Orders &amp; kitchen</li>' + OPS_LINKS.map(([key, label, ic]) => `<li><button type="button" data-ops="${key}">${icon(ic)}<span>${esc(label)}</span></button></li>`).join('') +
+            `<li><a class="sidenav__link" href="/kitchen/" target="_blank" rel="noopener">${icon('external')}<span>Kitchen screen</span></a></li>` + '<li class="sidenav__group">Website</li>' : '') +
           tabsFor().map(([key, label, ic]) => `<li><button type="button" data-tab="${key}">${icon(ic)}<span>${esc(label)}</span>${key === 'phone' ? '<span class="navcount" data-callcount hidden></span>' : ''}</button></li>`).join('') +
         '</ul>' +
         `<a class="sidenav__site" href="${esc(siteLink('index'))}" target="_blank" rel="noopener">${icon('external')}<span>View website</span></a></nav>` +
         '<main class="main" id="admin-main" tabindex="-1"></main>' +
+        '<div class="opsview" data-opsview hidden></div>' +
       '</div>' +
       '<div class="pubbar"><p class="pubbar__status" data-status aria-hidden="true"></p>' +
         '<button type="button" class="btn btn--primary" data-act="publish" disabled>Publish</button></div>' +
@@ -937,10 +1121,82 @@
     refreshCallCount();
   }
 
+  /* ------------------------------------------------------------------ Orders & kitchen inside this page
+     The Orders & kitchen pages are their own app (/ops/). It's loaded once into this page and kept there, so moving
+     between the website pages and Orders & kitchen is instant (no page reload) and nothing unpublished is touched. */
+  const opsState = { on: false, path: 'today', frame: null };
+  function showOps(path) {
+    if (!(IS_SERVER && isOwner())) return;
+    const view = $('[data-opsview]');
+    if (!view) return;
+    path = String(path || opsState.path || 'today').replace(/^\/+/, '');
+    opsState.on = true; opsState.path = path;
+    if (!opsState.frame || !opsState.frame.isConnected) {
+      const f = doc.createElement('iframe');
+      f.className = 'opsview__frame';
+      f.title = 'Orders & kitchen';
+      f.src = `/ops/?embed=1#/${path}`;
+      view.appendChild(f);
+      opsState.frame = f;
+    } else {
+      try { if (opsState.frame.contentWindow.location.hash !== `#/${path}`) opsState.frame.contentWindow.location.hash = `#/${path}`; } catch (e) { opsState.frame.src = `/ops/?embed=1#/${path}`; }
+    }
+    view.hidden = false;
+    $('#admin-main').hidden = true;
+    $('.shell').classList.add('shell--ops');
+    fitOps();
+    markOps(path);
+    if (location.hash !== `#ops/${path}`) history.replaceState(null, '', `#ops/${path}`);
+  }
+  // on phones the sections bar sits above the page: the Orders & kitchen view fills what's left of the screen
+  function fitOps() {
+    const nav = $('.sidenav');
+    const shell = $('.shell');
+    if (nav && shell) shell.style.setProperty('--nav-h', (window.matchMedia('(max-width: 900px)').matches ? nav.offsetHeight : 0) + 'px');
+  }
+  window.addEventListener('resize', () => { if (opsState.on) fitOps(); });
+  function markOps(path) {
+    const top = String(path || '').split(/[/?]/)[0];
+    $$('.sidenav [data-ops]').forEach((b) => { if (opsState.on && b.getAttribute('data-ops') === top) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
+    $$('.sidenav [data-tab]').forEach((b) => { if (opsState.on) b.removeAttribute('aria-current'); else if (b.getAttribute('data-tab') === state.tab) b.setAttribute('aria-current', 'page'); });
+  }
+  function hideOps() {
+    if (!opsState.on) return;
+    opsState.on = false;
+    const view = $('[data-opsview]');
+    if (view) view.hidden = true;
+    const main = $('#admin-main');
+    if (main) main.hidden = false;
+    $('.shell').classList.remove('shell--ops');
+    markOps('');
+  }
+  window.addEventListener('message', (e) => {
+    if (e.origin !== location.origin || !e.data || !opsState.frame || e.source !== opsState.frame.contentWindow) return;
+    const m = e.data;
+    if (m.type === 'delice-ops-route' && opsState.on) {
+      opsState.path = m.path || 'today';
+      markOps(opsState.path);
+      if (location.hash !== `#ops/${opsState.path}`) history.replaceState(null, '', `#ops/${opsState.path}`);
+    } else if (m.type === 'delice-tab' && tabsFor().some(([k]) => k === m.tab)) {
+      hideOps(); state.tab = m.tab; renderTab(); history.replaceState(null, '', `#${m.tab}`); window.scrollTo(0, 0);
+    } else if (m.type === 'delice-signed-out') {
+      location.reload();
+    }
+  });
+  window.addEventListener('hashchange', () => {
+    const h = location.hash.replace(/^#\/?/, '');
+    if (/^ops(\/|$)/.test(h)) showOps(h.slice(4) || 'today');
+    else if (h && tabsFor().some(([k]) => k === h) && (opsState.on || state.tab !== h)) { hideOps(); state.tab = h; renderTab(); }
+  });
+
   async function onShellClick(e) {
+    const opsBtn = e.target.closest('[data-ops]');
+    if (opsBtn && opsBtn.closest('.sidenav')) { showOps(opsBtn.getAttribute('data-ops')); window.scrollTo(0, 0); return; }
     const tabBtn = e.target.closest('[data-tab]');
     if (tabBtn && tabBtn.closest('.sidenav')) {
+      hideOps();
       state.tab = tabBtn.getAttribute('data-tab');
+      if (IS_SERVER && location.hash !== `#${state.tab}`) history.replaceState(null, '', `#${state.tab}`);
       renderTab();
       $('#admin-main').focus({ preventScroll: true });
       window.scrollTo(0, 0);
@@ -973,6 +1229,7 @@
       }
       try { await state.backend.logout(); } catch (ex) { /* ignore */ }
       state.draft = null;
+      opsState.on = false; opsState.frame = null;
       clearInterval(aliveTimer);
       renderLogin({ message: 'You’re logged out.' });
     }
@@ -982,7 +1239,7 @@
     const main = $('#admin-main');
     if (!main) return;
     $$('.sidenav [data-tab]').forEach((b) => {
-      if (b.getAttribute('data-tab') === state.tab) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+      if (b.getAttribute('data-tab') === state.tab && !opsState.on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
     });
     const views = { menu: viewMenu, home: viewHome, galleries: viewGalleries, hours: viewHours, phone: viewPhone, info: viewInfo, history: viewHistory, security: viewSecurity };
     const scrollY = window.scrollY;
@@ -2791,7 +3048,8 @@
         (c.details ? `<p class="call__details">${esc(c.details).replace(/\n/g, '<br>')}</p>` : '') +
         (c.followUp ? `<p class="call__todo"><strong>To do:</strong> ${esc(c.followUp)}</p>` : '') +
         '<div class="btn-row btn-row--tight">' +
-          (IS_SERVER && isOwner() && ['order', 'cake', 'catering'].includes(c.kind) ? `<a class="btn btn--quiet btn--sm" href="/ops/#/orders/new?call=${c.id}">${icon('plus')}Make a kitchen order</a>` : '') +
+          (IS_SERVER && isOwner() && c.orderNo ? `<a class="btn btn--quiet btn--sm call__order" href="#ops/orders/${c.orderId}">${icon('check')}Kitchen order ${esc(c.orderNo)}</a>` :
+            IS_SERVER && isOwner() && ['order', 'cake', 'catering'].includes(c.kind) ? `<button type="button" class="btn btn--quiet btn--sm" data-act="call-order">${icon('chef')}Add to kitchen order</button>` : '') +
           (c.doneAt
             ? `<span class="muted small">${icon('check')}Handled${c.doneBy ? ` by ${esc(c.doneBy)}` : ''} · ${esc(fmtStamp(c.doneAt))}</span><button type="button" class="btn btn--quiet btn--sm" data-act="call-reopen">Not handled yet</button>`
             : `<button type="button" class="btn btn--primary btn--sm" data-act="call-done">${icon('check')}Mark as handled</button>`) +
@@ -2837,6 +3095,13 @@
       const li = b.closest('[data-call]');
       if (!li) return;
       const id = Number(li.getAttribute('data-call'));
+      if (act === 'call-order') {
+        callOrder(id, (r) => {
+          calls = calls.map((c) => (c.id === id ? { ...c, orderId: r.id, orderNo: r.no, ...(r.markedDone ? { doneAt: Date.now(), doneBy: state.user } : {}) } : c));
+          draw({});
+        });
+        return;
+      }
       const done = act === 'call-done';
       if (act !== 'call-done' && act !== 'call-reopen') return;
       b.disabled = true;

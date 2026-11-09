@@ -475,3 +475,49 @@ fieldset.plain legend { font-weight: 650; font-size: .9rem; margin: 0 0 8px; pad
   .sidenav .sidenav__group { white-space: nowrap; align-self: center; padding: 0 4px 0 10px; border-left: 1px solid var(--line); }
   .sidenav .sidenav__group:first-child { border-left: 0; padding-left: 4px; }
 }
+
+/* Phone calls → kitchen order (the window that fills the order in from the call) */
+.co-call { background: #fbf8f3; border: 1px solid var(--line-2); border-radius: 12px; padding: 12px 14px; margin: 0 0 14px; }
+.co-call p { margin: 6px 0 0; }
+.co-call .i { width: 15px; height: 15px; vertical-align: -2px; }
+.co-lines { list-style: none; margin: 0 0 10px; padding: 0; border-top: 1px solid var(--line-2); }
+.co-line { display: grid; grid-template-columns: minmax(0, 1fr) auto 84px 36px; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line-2); }
+.co-line.is-open { background: linear-gradient(90deg, rgba(251,240,223,.7), transparent); }
+.co-line__main { display: grid; gap: 6px; min-width: 0; }
+.co-line__name strong { color: var(--ink); }
+.co-line__name .badge { margin-left: 4px; vertical-align: 1px; }
+.co-line__pick { display: flex; flex-wrap: wrap; gap: 6px; }
+.co-line__pick .input { width: auto; max-width: 100%; }
+.co-line__pick .is-needed { border-color: var(--warn); background: #fffaf1; }
+.co-line__qty { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line); border-radius: 999px; padding: 2px; }
+.co-line__qty span { min-width: 26px; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+.co-line__qty .icon-btn { width: 30px; height: 30px; }
+.co-line__price { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.co-add { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 16px; }
+.co-add .input { width: auto; max-width: 100%; }
+.co-total { color: var(--muted); }
+.co-total strong { color: var(--ink); font-size: 1.15rem; margin-left: 6px; }
+.co-who { gap: 0 14px; }
+.check { display: flex; align-items: center; gap: 8px; font-size: .92rem; cursor: pointer; }
+.check input { width: 18px; height: 18px; accent-color: var(--gold); }
+.call__order { color: var(--ok); border-color: #c9e3cf; }
+.dlg--lg .dlg__body { min-width: 0; overflow-x: hidden; }
+.co-lines, .co-line, .co-line__main, .co-add, .co-who { min-width: 0; }
+.co-line select, .co-add select { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
+@media (max-width: 640px) {
+  .co-line select, .co-add select { width: 100% !important; }
+  .co-add { flex-direction: column; align-items: stretch; }
+  .co-line { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "main main" "qty price" "qty rm"; }
+  .co-line__main { grid-area: main; } .co-line__qty { grid-area: qty; justify-self: start; } .co-line__price { grid-area: price; } .co-line > .icon-btn { grid-area: rm; justify-self: end; }
+}
+
+/* Orders & kitchen, kept loaded inside this page (switching is instant) */
+.main[hidden], .opsview[hidden] { display: none !important; }
+.opsview { min-width: 0; }
+.opsview__frame { display: block; width: 100%; height: calc(100vh - var(--top-h)); height: calc(100dvh - var(--top-h)); border: 0; background: #f4ecdf; }
+.shell--ops .pubbar { display: none; }
+.sidenav button[data-ops][aria-current="page"] { background: var(--ink); color: #f6e7c8; }
+.sidenav button[data-ops][aria-current="page"] .i { color: #d6b46f; }
+@media (max-width: 900px) {
+  .opsview__frame { height: calc(100vh - var(--top-h) - var(--nav-h, 54px)); height: calc(100dvh - var(--top-h) - var(--nav-h, 54px)); }
+}
