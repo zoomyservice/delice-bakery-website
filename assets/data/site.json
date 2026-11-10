@@ -1,6 +1,6 @@
 {
- "version": 0,
- "savedAt": null,
+ "version": 2,
+ "savedAt": 1794284466054,
  "doc": {
   "schema": 1,
   "info": {
@@ -56,34 +56,6 @@
    "linkText": "",
    "from": "",
    "until": ""
-  },
-  "home": {
-   "show": true,
-   "banner": {
-    "show": true,
-    "line1": "HAPPY",
-    "line2": "HOLIDAYS",
-    "line3": "SHANA TOVA",
-    "wish": "Wishing you and your family a wonderful new year filled with",
-    "wishBold": "Peace, Blessings & Good Health.",
-    "img": {
-     "src": "pomegranates",
-     "w": 752,
-     "h": 640
-    }
-   },
-   "eyebrow": "Holiday menu",
-   "title": "For your holiday table",
-   "lead": "Challah gift boxes, honey cake and round holiday challahs — order by e-mail or phone and pick up at the bakery.",
-   "cards": [
-    "rosh/challah-gift-box",
-    "rosh/honey-cake",
-    "rosh/round-challah",
-    "rosh/deluxe-gift-box"
-   ],
-   "page": "rosh-hashanah",
-   "linkText": "See the full holiday menu",
-   "orderSubject": "Holiday order"
   },
   "sections": [
    {
@@ -4049,6 +4021,7 @@
     "page": "drink",
     "name": "Coffee & drinks",
     "kind": "drinks",
+    "fixed": true,
     "groups": [
      {
       "id": "coffee",
@@ -4393,8 +4366,7 @@
        }
       ]
      }
-    ],
-    "fixed": true
+    ]
    }
   ],
   "galleries": [
@@ -6347,6 +6319,34 @@
      }
     ]
    }
-  ]
+  ],
+  "home": {
+   "show": true,
+   "banner": {
+    "show": true,
+    "line1": "HAPPY",
+    "line2": "HOLIDAYS",
+    "line3": "SHANA TOVA",
+    "wish": "Wishing you and your family a wonderful new year filled with",
+    "wishBold": "Peace, Blessings & Good Health.",
+    "img": {
+     "src": "pomegranates",
+     "w": 752,
+     "h": 640
+    }
+   },
+   "eyebrow": "Holiday menu",
+   "title": "For your holiday table",
+   "lead": "Challah gift boxes, honey cake and round holiday challahs — order by e-mail or phone and pick up at the bakery.",
+   "cards": [
+    "rosh/challah-gift-box",
+    "rosh/honey-cake",
+    "rosh/round-challah",
+    "rosh/deluxe-gift-box"
+   ],
+   "page": "rosh-hashanah",
+   "linkText": "See the full holiday menu",
+   "orderSubject": "Holiday order"
+  }
  }
 }
