@@ -472,7 +472,8 @@
       const t = Date.now();
       return [
         { id: 2, at: t - 25 * 60e3, kind: 'cake', name: 'Sample caller', number: '3105550123', callerId: '3105550123', summary: 'Napoleon cake, 8 inch, for Sunday',
-          details: 'Napoleon 8" × 8" ($59). Writing: "Happy Birthday Maya". Pickup Sunday at 11 am.', wanted: 'Sunday, 11:00 am (pickup)', followUp: 'Call back to confirm the cake.', lang: 'en', doneAt: null, test: true },
+          details: 'Napoleon 8" × 8" ($59). Writing: "Happy Birthday Maya". Pickup Sunday at 11 am.', wanted: 'Sunday, 11:00 am (pickup)', followUp: 'Call back to confirm the cake.', lang: 'en', doneAt: null, test: true,
+          items: [{ name: 'Napoleon', option: '8" × 8"', quantity: 1, notes: 'Writing: Happy Birthday Maya' }, { name: 'Croissant', quantity: 12 }] },
         { id: 1, at: t - 3 * 3600e3, kind: 'catering', name: 'Sample caller', number: '3105550188', callerId: '', summary: 'Pastry platters for 40 people',
           details: 'Office breakfast, about 40 people, mini croissants and pastries. Drop-off in Century City.', wanted: 'Next Thursday, 9:00 am', followUp: 'Call back with a catering quote.', lang: 'en', doneAt: t - 3600e3, doneBy: 'admin', test: true },
       ];
@@ -757,7 +758,7 @@
   /* ------------------------------------------------------------------ screens */
   const app = () => $('#app');
   const logoImg = () => `<img class="logo" src="${esc(state.assetBase)}assets/img/logo-light.png" width="120" height="62" alt="">`;
-  const brandMark = () => '<span class="brandmark" aria-hidden="true">D</span>';
+  const brandMark = () => '<span class="zoomy-logo zoomy-logo--login"><span class="brandmark" aria-hidden="true">D</span><span class="zoomy-tag">Powered by Zoomy</span></span>';
 
   function adminUrlFromSite() {
     let raw = '';
@@ -796,6 +797,7 @@
 
   function renderLogin(info) {
     info = info || {};
+    assistantWho(false, /logged out/i.test(info.message || ''));
     const test = state.backend.kind === 'local';
     doc.title = 'Log in · Delice Bakery admin';
     const setupMsg = info.setup === 'weak'
@@ -843,6 +845,7 @@
         const s = await state.backend.session();
         state.user = s.user || user.value.trim().toLowerCase();
         state.role = s.role || 'owner';
+        state.label = s.label || '';
         if (s.siteUrl) setSite(s.siteUrl);
         await startApp();
       } catch (ex) {
@@ -891,6 +894,8 @@
     // a link from Orders & kitchen (/#hours, /#phone…) opens that page
     const want = (location.hash || '').replace(/^#\/?/, '');
     if (want && tabsFor().some(([k]) => k === want)) state.tab = want;
+    const wantCall = /^phone\/(\d{1,12})$/.exec(want);
+    if (wantCall && tabsFor().some(([k]) => k === 'phone')) { state.tab = 'phone'; pcState.id = wantCall[1]; }
     if (!tabsFor().some(([k]) => k === state.tab)) state.tab = 'menu';
     renderShell();
     if (/^ops(\/|$)/.test(want)) showOps(want.slice(4) || 'today');
@@ -900,7 +905,55 @@
       $('[data-restored-text]', n).textContent = restoredNote;
     }
     keepAlive();
+    assistantWho(true);
   }
+
+  /* ------------------------------------------------------------------ AI Assistant (/assistant.js, owner and admin logins)
+     The chat button and panel come from /assistant.js. It asks this page who is logged in, and tells it when a change was
+     made, so the page shows it right away. A website change is published by the server; any unpublished changes open here
+     are kept (the assistant's change is applied to them too). */
+  let aiWho = null;
+  function assistantWho(on, forget) {
+    aiWho = on && IS_SERVER && isOwner() ? { user: state.role === 'owner' ? 'owner' : `admin:${state.user}`, name: state.role === 'owner' ? '' : state.label || '' } : null;
+    if (!aiWho && forget && window.AdminAssistant) window.AdminAssistant.clear();
+    window.dispatchEvent(new Event('admin-assistant:who'));
+  }
+  async function assistantWebsite(site) {
+    if (!state.published || !state.draft) return;
+    const had = isDirty();
+    try {
+      const loaded = await state.backend.load();
+      state.published = { version: loaded.version, savedAt: loaded.savedAt, doc: normalized(loaded.doc) };
+      await state.backend.preload([loaded.doc]);
+      if (!had) { state.draft = clone(state.published.doc); store.del(DRAFT_KEY()); }
+      else if (site && site.steps && window.AdminAssistantDoc) {
+        try {
+          state.draft = normalized(window.AdminAssistantDoc.apply(state.draft, site.steps));
+          toast('Your unpublished changes are kept, with the assistant’s change added.', 'ok');
+        } catch (e) {
+          toast('Your unpublished changes are kept, but they don’t include the assistant’s change. Check them before publishing.', 'error');
+        }
+        saveDraftNow();
+      } else {
+        toast('An older version is back on the website. Your unpublished changes are still here: check them before publishing.', 'error');
+        saveDraftNow();
+      }
+      changed({ rerender: !opsState.on });
+      refreshStatus(true);
+    } catch (ex) { toast(ex.message, 'error'); }
+  }
+  window.AdminAssistantHost = {
+    who: () => aiWho,
+    afterChange(list, extra) {
+      extra = extra || {};
+      if (extra.logged_out) { state.draft = null; opsState.on = false; opsState.frame = null; clearInterval(aliveTimer); renderLogin({ message: 'You’re logged out on all devices.' }); return; }
+      if (list.includes('website')) assistantWebsite(extra.site);
+      if (list.includes('calls')) { refreshCallCount(); if (state.tab === 'phone' && !opsState.on) renderTab(); }
+      if (list.includes('logins') || list.includes('admins')) { if (state.tab === 'security' && !opsState.on) renderTab(); }
+      // Orders & kitchen (orders, customers, stations, staff, time clock, settings, admin logins) reload their data
+      if (opsState.frame && opsState.frame.isConnected) { try { opsState.frame.contentWindow.postMessage({ type: 'delice-refresh' }, location.origin); } catch (e) { /* still loading */ } }
+    },
+  };
 
   /* ------------------------------------------------------------------ phone call → kitchen order (Orders & kitchen)
      The phone agent sends the order as a list (exact menu names, sizes, quantities, flavors, pickup day and time).
@@ -1089,7 +1142,7 @@
     app().innerHTML =
       '<div class="shell">' +
       '<header class="topbar">' +
-        `<a class="topbar__brand" href="${esc(siteLink('index'))}" target="_blank" rel="noopener" title="Open the website">${logoImg()}<span><small>${test ? 'Admin · test mode' : 'Admin'}</small><small class="topbar__who">${icon('user')}${who}</small></span></a>` +
+        `<a class="topbar__brand" href="${esc(siteLink('index'))}" target="_blank" rel="noopener" title="Open the website"><span class="zoomy-logo">${logoImg()}<span class="zoomy-tag">Powered by Zoomy</span></span><span><small>${test ? 'Admin · test mode' : 'Admin'}</small><small class="topbar__who">${icon('user')}${who}</small></span></a>` +
         '<p class="topbar__status" data-status role="status" aria-live="polite"></p>' +
         '<div class="topbar__actions">' +
           '<button type="button" class="btn btn--ghost" data-act="discard" hidden>Discard</button>' +
@@ -1178,7 +1231,7 @@
       markOps(opsState.path);
       if (location.hash !== `#ops/${opsState.path}`) history.replaceState(null, '', `#ops/${opsState.path}`);
     } else if (m.type === 'delice-tab' && tabsFor().some(([k]) => k === m.tab)) {
-      hideOps(); state.tab = m.tab; renderTab(); history.replaceState(null, '', `#${m.tab}`); window.scrollTo(0, 0);
+      hideOps(); state.tab = m.tab; pcState.id = null; renderTab(); history.replaceState(null, '', `#${m.tab}`); window.scrollTo(0, 0);
     } else if (m.type === 'delice-signed-out') {
       location.reload();
     }
@@ -1186,7 +1239,8 @@
   window.addEventListener('hashchange', () => {
     const h = location.hash.replace(/^#\/?/, '');
     if (/^ops(\/|$)/.test(h)) showOps(h.slice(4) || 'today');
-    else if (h && tabsFor().some(([k]) => k === h) && (opsState.on || state.tab !== h)) { hideOps(); state.tab = h; renderTab(); }
+    else if (/^phone\/\d{1,12}$/.test(h) && tabsFor().some(([k]) => k === 'phone')) { hideOps(); state.tab = 'phone'; pcState.id = h.slice(6); renderTab(); window.scrollTo(0, 0); }
+    else if (h && tabsFor().some(([k]) => k === h) && (opsState.on || state.tab !== h || (h === 'phone' && pcState.id))) { hideOps(); state.tab = h; pcState.id = null; renderTab(); }
   });
 
   async function onShellClick(e) {
@@ -1196,6 +1250,7 @@
     if (tabBtn && tabBtn.closest('.sidenav')) {
       hideOps();
       state.tab = tabBtn.getAttribute('data-tab');
+      pcState.id = null;
       if (IS_SERVER && location.hash !== `#${state.tab}`) history.replaceState(null, '', `#${state.tab}`);
       renderTab();
       $('#admin-main').focus({ preventScroll: true });
@@ -3001,11 +3056,38 @@
       }
     });
   }
-  /* ------------------------------------------------------------------ phone calls (from the phone agent) */
+  /* ------------------------------------------------------------------ phone calls (from the phone agent)
+     Same layout as Boule de Pain's Phones page: a list (New / All calls / With orders), and one call at #phone/<id>
+     with its details, what they ordered (checked against the menu) and an Add order button. Styles: .pc-* (shared/phones). */
   const CALL_KIND = { order: 'Order', cake: 'Cake order', catering: 'Catering', callback: 'Callback', complaint: 'Complaint', message: 'Message' };
+  const PC_FILTERS = [['new', 'New'], ['all', 'All calls'], ['orders', 'With orders']];
+  const pcState = { filter: 'new', id: null };
+  const BAKERY_TZ = 'America/Los_Angeles';
   function fmtPhone(d) {
     const s = String(d || '');
     return s.length === 10 ? `(${s.slice(0, 3)}) ${s.slice(3, 6)}-${s.slice(6)}` : s;
+  }
+  const pcYmd = (ms) => new Date(ms).toLocaleDateString('en-CA', { timeZone: BAKERY_TZ });
+  const pcTime = (ms) => new Date(ms).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BAKERY_TZ });
+  function pcDay(ms) {
+    const d = pcYmd(ms);
+    if (d === pcYmd(Date.now())) return 'Today';
+    if (d === pcYmd(Date.now() - 864e5)) return 'Yesterday';
+    return new Date(ms).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: BAKERY_TZ });
+  }
+  const pcWhen = (ms) => (ms ? `${pcDay(ms)}, ${pcTime(ms)}` : '');
+  const pcDateLong = (d) => new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' });
+  const pcTime12 = (t) => { const [h, m] = String(t).split(':').map(Number); return `${h % 12 || 12}${m ? ':' + String(m).padStart(2, '0') : ''} ${h >= 12 ? 'PM' : 'AM'}`; };
+  const pcNorm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  const callNew = (c) => !c.doneAt && !c.orderId;
+  const callWho = (c) => c.name || (c.number ? fmtPhone(c.number) : c.callerId ? fmtPhone(c.callerId) : 'Unknown caller');
+  const canOrder = () => IS_SERVER && isOwner();
+  const kindBadge = (c) => `<span class="pc-b ${c.kind === 'complaint' ? 'pc-b--danger' : ['order', 'cake', 'catering'].includes(c.kind) ? 'pc-b--new' : 'pc-b--info'}">${esc(CALL_KIND[c.kind] || 'Message')}</span>`;
+  function callBadges(c, link) {
+    return (c.orderNo ? (link && canOrder() ? `<a class="pc-b pc-b--info" href="#ops/orders/${c.orderId}">${icon('check')}Order ${esc(c.orderNo)}</a>` : `<span class="pc-b pc-b--info">${icon('check')}Order ${esc(c.orderNo)}</span>`)
+      : c.doneAt ? `<span class="pc-b pc-b--ok">${icon('check')}Handled</span>` : '<span class="pc-b pc-b--hot">New</span>') +
+      (c.followUp && callNew(c) ? '<span class="pc-b pc-b--warn">Call back</span>' : '') +
+      (c.lang === 'es' ? '<span class="pc-b">Spanish</span>' : '');
   }
   function setCallCount(n) {
     const el = $('[data-callcount]');
@@ -3019,64 +3101,60 @@
     if (!state.backend.phoneCalls) return;
     try { setCallCount((await state.backend.phoneCalls()).open); } catch (e) { /* try again later */ }
   }
+  // each call has its own address (#phone/<id>), so the browser's Back button goes back to the list
+  function openCallPage(id) { pcState.id = id === null ? null : String(id); history.pushState(null, '', id === null ? '#phone' : `#phone/${id}`); renderTab(); window.scrollTo(0, 0); }
+  // mark handled / not handled, with Undo
+  async function markCallDone(c, done, after) {
+    await state.backend.markCall(c.id, done);
+    after();
+    if (done) toast(`Marked ${c.name ? `${c.name}’s call` : 'the call'} as handled.`, 'ok', { label: 'Undo', run: async () => { await state.backend.markCall(c.id, false); after(); } });
+    else toast('Marked as not handled.');
+  }
 
   function viewPhone(main) {
+    if (pcState.id) { viewCall(main, pcState.id); return; }
     const view = doc.createElement('div');
-    view.className = 'view';
+    view.className = 'view pc';
     view.innerHTML =
       '<div class="view__head"><div><h1 tabindex="-1">Phone calls</h1>' +
-        '<p class="muted">Orders, cake and catering requests, callbacks and complaints taken by the phone agent. Call the customer back, then tick the call off.</p></div>' +
+        '<p class="muted">Orders, cake and catering requests, callbacks and complaints taken by the phone agent. Open a call to see what they asked for and turn it into a kitchen order.</p></div>' +
         `<button type="button" class="btn btn--quiet" data-act="calls-refresh">${icon('undo')}Refresh</button></div>` +
       '<div data-calls aria-busy="true"><p class="muted">Loading…</p></div>';
     main.appendChild(view);
     const box = $('[data-calls]', view);
     let calls = [];
-    let showDone = false;
+    let info = {};
 
-    const card = (c) => {
-      const tel = c.number ? `<a href="tel:+1${esc(c.number)}">${esc(fmtPhone(c.number))}</a>` : '<span class="muted">No number given</span>';
-      const other = c.callerId && c.callerId !== c.number ? `<span class="muted small"> · called from ${esc(fmtPhone(c.callerId))}</span>` : '';
-      return `<li class="call${c.doneAt ? ' call--done' : ''}" data-call="${c.id}">` +
-        '<div class="call__head">' +
-          `<span class="badge ${c.kind === 'complaint' ? 'badge--warn' : c.kind === 'order' || c.kind === 'cake' ? 'badge--gold' : ''}">${esc(CALL_KIND[c.kind] || 'Message')}</span>` +
-          (c.lang === 'es' ? '<span class="badge badge--muted">Spanish</span>' : '') +
-          `<span class="muted small">${esc(fmtAgo(c.at))}</span>` +
-        '</div>' +
-        `<h3 class="call__title">${esc(c.summary || 'Phone call')}</h3>` +
-        `<p class="call__who">${icon('user')}<strong>${esc(c.name || 'No name given')}</strong> · ${tel}${other}</p>` +
-        (c.wanted ? `<p class="call__when">${icon('calendar')}${esc(c.wanted)}</p>` : '') +
-        (c.details ? `<p class="call__details">${esc(c.details).replace(/\n/g, '<br>')}</p>` : '') +
-        (c.followUp ? `<p class="call__todo"><strong>To do:</strong> ${esc(c.followUp)}</p>` : '') +
-        '<div class="btn-row btn-row--tight">' +
-          (IS_SERVER && isOwner() && c.orderNo ? `<a class="btn btn--quiet btn--sm call__order" href="#ops/orders/${c.orderId}">${icon('check')}Kitchen order ${esc(c.orderNo)}</a>` :
-            IS_SERVER && isOwner() && ['order', 'cake', 'catering'].includes(c.kind) ? `<button type="button" class="btn btn--quiet btn--sm" data-act="call-order">${icon('chef')}Add to kitchen order</button>` : '') +
-          (c.doneAt
-            ? `<span class="muted small">${icon('check')}Handled${c.doneBy ? ` by ${esc(c.doneBy)}` : ''} · ${esc(fmtStamp(c.doneAt))}</span><button type="button" class="btn btn--quiet btn--sm" data-act="call-reopen">Not handled yet</button>`
-            : `<button type="button" class="btn btn--primary btn--sm" data-act="call-done">${icon('check')}Mark as handled</button>`) +
-        '</div></li>';
-    };
-    const draw = (data) => {
+    const row = (c) => `<div class="pc-row${callNew(c) ? ' is-new' : ''}" data-call="${c.id}">` +
+      `<div class="pc-row__time"><b>${esc(pcTime(c.at))}</b><small>${esc(pcDay(c.at))}</small></div>` +
+      `<div class="pc-row__main"><a class="pc-row__who" href="#phone/${c.id}">${esc(callWho(c))}</a>` +
+        `<div class="pc-row__meta">${kindBadge(c)}${c.name && c.number ? `<span>${esc(fmtPhone(c.number))}</span>` : ''}${c.wanted ? `<span>${icon('calendar')}${esc(c.wanted)}</span>` : ''}</div>` +
+        (c.summary ? `<p class="pc-row__title">${esc(c.summary)}</p>` : '') +
+        (c.details ? `<p class="pc-row__sum">${esc(c.details)}</p>` : '') + '</div>' +
+      `<div class="pc-row__side">${callBadges(c, true)}</div></div>`;
+    const draw = () => {
       box.removeAttribute('aria-busy');
-      const open = calls.filter((c) => !c.doneAt);
-      const done = calls.filter((c) => c.doneAt);
-      setCallCount(open.length);
+      const f = pcState.filter;
+      const n = { new: calls.filter(callNew).length };
+      setCallCount(calls.filter((c) => !c.doneAt).length);
+      const list = calls.filter(f === 'new' ? callNew : f === 'orders' ? (c) => !!c.orderId : () => true).sort((a, b) => b.at - a.at);
       let h = '';
-      if (data && data.test) h += '<p class="note note--test">Test mode shows two made-up calls. Real calls from the phone agent show in the live panel.</p>';
-      else if (data && data.ready === false) h += '<p class="note note--warn">The phone agent isn’t connected to this panel yet.</p>';
-      h += `<section class="card" aria-labelledby="calls-open"><h2 id="calls-open">To handle${open.length ? ` <span class="badge badge--warn">${open.length}</span>` : ''}</h2>` +
-        (open.length ? `<ul class="calls">${open.map(card).join('')}</ul>` : '<p class="empty">Nothing to handle. New calls show up here.</p>') + '</section>';
-      if (done.length) {
-        h += `<section class="card" aria-labelledby="calls-done"><h2 id="calls-done">Handled</h2>` +
-          `<button type="button" class="btn btn--quiet btn--sm" data-act="calls-toggle" aria-expanded="${showDone}">${showDone ? 'Hide' : 'Show'} ${plural(done.length, 'handled call')}</button>` +
-          (showDone ? `<ul class="calls">${done.map(card).join('')}</ul>` : '') + '</section>';
-      }
+      if (info.test) h += '<p class="note note--test">Test mode shows two made-up calls. Real calls from the phone agent show in the live panel.</p>';
+      else if (info.ready === false) h += '<p class="note note--warn">The phone agent isn’t connected to this panel yet.</p>';
+      h += `<div class="pc-tabs" role="tablist" aria-label="Which calls">${PC_FILTERS.map(([k, label]) => `<a role="tab" href="#phone" data-filter="${k}" aria-selected="${f === k}">${label}${k === 'new' && n.new ? `<span class="pc-count">${n.new}</span>` : ''}</a>`).join('')}</div>`;
+      h += list.length ? `<div class="pc-list">${list.map(row).join('')}</div>`
+        : `<div class="pc-panel"><p class="pc-empty"><b>${f === 'new' ? 'No new calls' : f === 'orders' ? 'No orders from calls yet' : 'No calls yet'}</b>${f === 'new'
+          ? 'Every call is handled. New calls show up here. <a href="#phone" data-filter="all">See all calls</a>'
+          : f === 'orders' ? 'Calls you make a kitchen order from with “Add order” show up here.' : 'Calls to the phone agent show up here.'}</p></div>`;
+      h += `<p class="pc-foot">${f === 'new' ? 'New: calls nobody has handled or made an order from yet. ' : ''}This page checks for new calls every minute.</p>`;
       box.innerHTML = h;
     };
     const load = async () => {
       try {
         const data = await state.backend.phoneCalls();
         calls = data.calls || [];
-        draw(data);
+        info = { test: !!data.test, ready: data.ready };
+        draw();
       } catch (ex) {
         box.removeAttribute('aria-busy');
         if (ex.code === 'signed_out' || ex.status === 401) { handleSaveError(ex); return; }
@@ -3087,39 +3165,125 @@
     const timer = setInterval(() => { if (!view.isConnected) { clearInterval(timer); return; } if (Date.now() - state.lastActivity < 10 * 60e3) load(); }, 60e3);
 
     view.addEventListener('click', async (e) => {
+      const tab = e.target.closest('[data-filter]');
+      if (tab) { e.preventDefault(); pcState.filter = tab.getAttribute('data-filter'); draw(); const t = $(`.pc-tabs [data-filter="${pcState.filter}"]`, view); if (t) t.focus(); return; }
+      const b = e.target.closest('[data-act]');
+      if (b && b.getAttribute('data-act') === 'calls-refresh') { box.setAttribute('aria-busy', 'true'); await load(); toast('Up to date.'); return; }
+      const a = e.target.closest('a');
+      if (a) { if (a.matches('.pc-row__who')) { e.preventDefault(); openCallPage(a.closest('[data-call]').getAttribute('data-call')); } return; }
+      const r = e.target.closest('[data-call]');
+      if (r) openCallPage(r.getAttribute('data-call'));
+    });
+  }
+
+  // ---------- one call ----------
+  function viewCall(main, id) {
+    const view = doc.createElement('div');
+    view.className = 'view pc';
+    view.innerHTML = `<a class="pc-back" href="#phone" data-act="calls-back">${icon('left')}Phone calls</a><div data-call-view aria-busy="true"><p class="muted">Loading…</p></div>`;
+    main.appendChild(view);
+    const box = $('[data-call-view]', view);
+    let c = null, test = false, draft = null, draftErr = '';
+
+    const kv = (label, value, sub) => `<div class="pc-kv"><small>${label}</small><b>${value}</b>${sub ? `<span>${sub}</span>` : ''}</div>`;
+    const tel = (n) => `<a href="tel:+1${esc(n)}">${esc(fmtPhone(n))}</a>`;
+    const pickupText = () => {
+      const date = draft ? draft.date : c.pickupDate, time = draft ? draft.time : c.pickupTime;
+      if (date) return esc(pcDateLong(date)) + (time ? ` at ${esc(pcTime12(time))}` : '');
+      return c.wanted ? esc(c.wanted) : '<span class="pc-muted">Not given</span>';
+    };
+    const heard = (l) => l.said && l.name && pcNorm(l.said).indexOf(pcNorm(l.name)) < 0;
+    const ordered = () => {
+      const add = canOrder() && !c.orderNo ? `<button type="button" class="btn btn--primary btn--sm" data-act="call-order">${icon('plus')}Add order</button>` : '';
+      let body = '';
+      if (canOrder() && !draft && !draftErr) body = '<p class="pc-muted">Checking the order against the menu…</p>';
+      else if (draft) {
+        const ok = draft.lines.filter((l) => l.status !== 'pick_item'), un = draft.lines.filter((l) => l.status === 'pick_item');
+        if (!draft.lines.length) body = '<p class="pc-muted">The phone agent didn’t write down any menu items for this call.</p>';
+        else {
+          if (draft.from === 'text') body += '<p class="pc-small" style="margin:0 0 8px">Read from the call’s written summary: check each one.</p>';
+          if (ok.length) body += `<table class="pc-lines"><tbody>${ok.map((l) => `<tr><td class="pc-q">${l.qty}</td><td>${esc(l.name)}${l.opts ? ` <span class="pc-small">${esc(l.opts)}</span>` : ''}` +
+            (l.status !== 'ok' && !c.orderNo ? `<span class="pc-b pc-b--warn">${l.status === 'pick_size' ? 'Pick the size' : 'Pick the flavor'}</span>` : '') +
+            (heard(l) ? `<div class="pc-small">Heard: “${esc(l.said)}”</div>` : '') + (l.notes ? `<div class="pc-small">${esc(l.notes)}</div>` : '') +
+            (l.sold_out ? `<div class="pc-small">${esc(l.sold_out)} on the website</div>` : '') + '</td></tr>').join('')}</tbody></table>`;
+          if (un.length && !c.orderNo) body += `<div class="pc-alert">${icon('search')}<div><p><b>Not matched to the menu:</b></p><ul>${un.map((l) => `<li>${esc(l.said || 'An item')}</li>`).join('')}</ul><p>Choose ${un.length === 1 ? 'it' : 'them'} in Add order.</p></div></div>`;
+        }
+      } else {
+        const items = (c.items || []).filter((x) => x && x.name);
+        body = items.length ? `<table class="pc-lines"><tbody>${items.map((x) => `<tr><td class="pc-q">${esc(x.quantity || 1)}</td><td>${esc(x.name)}${x.option || x.flavor ? ` <span class="pc-small">${esc([x.option, x.flavor].filter(Boolean).join(' · '))}</span>` : ''}${x.notes ? `<div class="pc-small">${esc(x.notes)}</div>` : ''}</td></tr>`).join('')}</tbody></table>`
+          : '<p class="pc-muted">The phone agent didn’t write down any items for this call.</p>';
+        if (draftErr) body += `<p class="pc-small">${esc(draftErr)}</p>`;
+      }
+      if (c.orderNo) body = `<div class="pc-alert pc-alert--ok" style="margin:0 0 12px">${icon('check')}<p>Kitchen order <b>${esc(c.orderNo)}</b> was made from this call.${canOrder() ? ` <a href="#ops/orders/${c.orderId}">Open it</a> to see exactly what the kitchen has.` : ''}</p></div>` + body;
+      return `<section class="pc-panel"><div class="pc-panel__head"><h2>What they ordered</h2>${add}</div>${body}</section>`;
+    };
+    const draw = () => {
+      box.removeAttribute('aria-busy');
+      const back = c.number || c.callerId;
+      const can = canOrder();
+      // each thing once: the pickup is the agent's day and time when it sent one, otherwise its own words
+      const fields = [
+        ['Name', c.name], ['Call back on', c.number ? tel(c.number) : '', true],
+        ['Called from', c.callerId && c.callerId !== c.number ? tel(c.callerId) : '', true],
+        ['Pickup', c.pickupDate ? pcDateLong(c.pickupDate) + (c.pickupTime ? ' at ' + pcTime12(c.pickupTime) : '') : c.wanted],
+        ['Next step', c.followUp], ['Language', c.lang === 'es' ? 'Spanish' : ''],
+      ].filter((x) => x[1]);
+      box.innerHTML =
+        `<div class="pc-head"><div><h1 tabindex="-1">${esc(c.summary || 'Call from ' + callWho(c))}</h1>` +
+          `<p class="pc-sub"><span>${esc(callWho(c))} · ${esc(pcWhen(c.at))}</span>${kindBadge(c)}${callBadges(c, false)}</p></div>` +
+        '<div class="pc-actions">' +
+          (c.orderNo ? (can ? `<a class="btn btn--primary" href="#ops/orders/${c.orderId}">${icon('list')}Open order ${esc(c.orderNo)}</a>` : '')
+            : can ? `<button type="button" class="btn btn--primary" data-act="call-order">${icon('plus')}Add order</button>` : '') +
+          (c.doneAt ? `<button type="button" class="btn btn--quiet" data-act="call-reopen">${icon('undo')}Not handled</button>`
+            : `<button type="button" class="btn btn--quiet" data-act="call-done">${icon('check')}Mark handled</button>`) +
+          (back ? `<a class="btn btn--quiet" href="tel:+1${esc(back)}">${icon('phone')}Call back</a>` : '') +
+        '</div></div>' +
+        (test ? '<p class="note note--test">Test mode: a made-up call. Add order works in the live panel.</p>' : '') +
+        '<div class="pc-grid">' +
+          kv('When', esc(pcWhen(c.at)), c.lang === 'es' ? 'In Spanish' : '') +
+          kv('Caller', esc(c.name || 'Not given')) +
+          kv('Phone', back ? tel(back) : 'Not given', c.callerId && c.number && c.callerId !== c.number ? `Called from ${tel(c.callerId)}` : '') +
+          kv('Pickup', pickupText()) +
+        '</div>' +
+        (c.doneAt ? `<p class="pc-done">${icon('check')}Handled by ${esc(c.doneBy || 'an admin')} · ${esc(fmtStamp(c.doneAt))}</p>` : '') +
+        '<div class="pc-cols"><div>' +
+          `<section class="pc-panel"><div class="pc-panel__head"><h2>Summary</h2></div>${c.details ? `<p class="pc-text">${esc(c.details)}</p>` : '<p class="pc-muted">No summary for this call.</p>'}</section>` +
+          ordered() +
+        '</div><div>' +
+          `<section class="pc-panel"><div class="pc-panel__head"><h2>What the agent wrote down</h2></div>${fields.length ? `<dl class="pc-fields">${fields.map(([k, v, raw]) => `<dt>${k}</dt><dd>${raw ? v : esc(v)}</dd>`).join('')}</dl>` : '<p class="pc-muted">Nothing was written down on this call.</p>'}</section>` +
+        '</div></div>';
+    };
+    const load = async (withDraft) => {
+      try {
+        const data = await state.backend.phoneCalls();
+        test = !!data.test;
+        setCallCount(data.open);
+        c = (data.calls || []).find((x) => String(x.id) === String(id)) || null;
+        if (!c) { box.removeAttribute('aria-busy'); box.innerHTML = '<div class="pc-panel"><p class="pc-empty"><b>That call isn’t in the list any more.</b><a href="#phone" data-act="calls-back">See all calls</a></p></div>'; return; }
+        draw();
+        if (withDraft && canOrder()) {
+          try { draft = await opsApi('GET', `/calls/${c.id}/draft`); draftErr = ''; } catch (ex) { draft = null; draftErr = ex.message; }
+          if (view.isConnected) draw();
+        }
+      } catch (ex) {
+        box.removeAttribute('aria-busy');
+        if (ex.code === 'signed_out' || ex.status === 401) { handleSaveError(ex); return; }
+        box.innerHTML = `<p class="form-error">${esc(ex.message)}</p>`;
+      }
+    };
+    load(true);
+
+    view.addEventListener('click', async (e) => {
       const b = e.target.closest('[data-act]');
       if (!b) return;
       const act = b.getAttribute('data-act');
-      if (act === 'calls-refresh') { box.setAttribute('aria-busy', 'true'); await load(); toast('Up to date.'); return; }
-      if (act === 'calls-toggle') { showDone = !showDone; draw({}); return; }
-      const li = b.closest('[data-call]');
-      if (!li) return;
-      const id = Number(li.getAttribute('data-call'));
-      if (act === 'call-order') {
-        callOrder(id, (r) => {
-          calls = calls.map((c) => (c.id === id ? { ...c, orderId: r.id, orderNo: r.no, ...(r.markedDone ? { doneAt: Date.now(), doneBy: state.user } : {}) } : c));
-          draw({});
-        });
-        return;
-      }
-      const done = act === 'call-done';
-      if (act !== 'call-done' && act !== 'call-reopen') return;
-      b.disabled = true;
-      try {
-        await state.backend.markCall(id, done);
-        calls = calls.map((c) => (c.id === id ? { ...c, doneAt: done ? Date.now() : null, doneBy: done ? state.user : null } : c));
-        draw({});
-        const c = calls.find((x) => x.id === id);
-        if (done) {
-          toast(`Marked ${c && c.name ? `${c.name}’s call` : 'the call'} as handled.`, 'ok', { label: 'Undo', run: async () => {
-            await state.backend.markCall(id, false);
-            calls = calls.map((x) => (x.id === id ? { ...x, doneAt: null, doneBy: null } : x));
-            draw({});
-          } });
-        }
-      } catch (ex) {
-        b.disabled = false;
-        if (ex.code === 'signed_out' || ex.status === 401) handleSaveError(ex); else toast(ex.message, 'error');
+      if (act === 'calls-back') { e.preventDefault(); openCallPage(null); return; }
+      if (!c) return;
+      if (act === 'call-order') { callOrder(c.id, () => { refreshCallCount(); load(true); }); return; }
+      if (act === 'call-done' || act === 'call-reopen') {
+        b.disabled = true;
+        try { await markCallDone(c, act === 'call-done', () => { refreshCallCount(); if (view.isConnected) load(false); }); }
+        catch (ex) { b.disabled = false; if (ex.code === 'signed_out' || ex.status === 401) handleSaveError(ex); else toast(ex.message, 'error'); }
       }
     });
   }
@@ -3255,7 +3419,7 @@
     if (/^(.)\1+$/.test(p) || /^(0123456789|1234567890)/.test(p) || /password|delice|bakery/i.test(p) && p.length < 16) return 'That passcode is too easy to guess.';
     return '';
   }
-  const ACTIONS = { login: 'Logged in', login_failed: 'Wrong passcode', login_blocked: 'Login blocked (too many tries)', publish: 'Published', restore: 'Restored a version', photo_upload: 'Photo uploaded', logout_all: 'Logged out everywhere', user_add: 'Staff login added', user_update: 'Staff passcode changed', user_remove: 'Staff login removed', password: 'Changed own passcode', preview: 'Made a preview' };
+  const ACTIONS = { assistant: 'AI Assistant', login: 'Logged in', login_failed: 'Wrong passcode', login_blocked: 'Login blocked (too many tries)', publish: 'Published', restore: 'Restored a version', photo_upload: 'Photo uploaded', logout_all: 'Logged out everywhere', user_add: 'Staff login added', user_update: 'Staff passcode changed', user_remove: 'Staff login removed', password: 'Changed own passcode', preview: 'Made a preview' };
 
   function viewSecurity(main) {
     const test = state.backend.kind === 'local';
@@ -3445,6 +3609,7 @@
         setSite(s.siteUrl || '');
         state.user = s.user || '';
         state.role = s.role || 'owner';
+        state.label = s.label || '';
         if (s.authenticated) await startApp(); else renderLogin({ setup: s.setup });
         return;
       }

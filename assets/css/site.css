@@ -247,6 +247,9 @@ p { margin: 0 0 1em; }
 .site-header .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: var(--header-h); max-width: 1400px; }
 .brand { display: flex; align-items: center; flex: none; }
 .brand img { height: 48px; width: auto; }
+/* "Powered by Zoomy" in very small letters right under the logo at the top of every page */
+.brand-wrap { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.zoomy-tag { display: block; font-size: 6.5px; line-height: 1; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; white-space: nowrap; color: #978a78; font-style: italic; text-align: right; }
 .nav { display: flex; align-items: center; gap: 2px; }
 .nav > ul { list-style: none; display: flex; margin: 0; padding: 0; gap: 0; }
 .nav li { position: relative; }
@@ -556,6 +559,8 @@ button.zoom:focus-visible { outline: 2px solid var(--gold); outline-offset: -3px
 .newsletter input { flex: 1; min-width: 0; padding: 12px 14px; border-radius: 999px; border: 1px solid rgba(214,180,111,.35); background: rgba(255,255,255,.04); color: #fbf3e2; font: inherit; }
 .newsletter input::placeholder { color: #9d9080; }
 .newsletter .btn { min-height: 46px; padding: 10px 18px; }
+/* "Powered by Zoomy": a small plain label (no link) at the very bottom of every page */
+.zoomy-credit { margin: 22px 0 0; text-align: center; font-size: 11px; line-height: 1.4; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; font-style: italic; color: #8a7d6c; }
 .foot-bottom { margin-top: 56px; padding-top: 22px; border-top: 1px solid rgba(214,180,111,.18); display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: space-between; font-size: .82rem; color: #978a78; }
 .ok-link { display: inline-flex; align-items: center; gap: 10px; margin-top: 14px; }
 .ok-link img { width: 44px; height: 44px; background: #fff; border-radius: 50%; padding: 3px; }
